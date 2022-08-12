@@ -7,7 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/src/Newdigate.SqlToExpression.Tests.csproj",
+                "${workspaceFolder}/tests/Newdigate.SqlToExpression.Tests.csproj",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary"
             ],

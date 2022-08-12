@@ -5,8 +5,8 @@ using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
 using System.Linq;
 using System.Reflection;
+using System.Collections;
 using static System.Diagnostics.Debug;
-
 
 namespace tests;
 
@@ -16,12 +16,22 @@ public class UnitTest1
         public int Id { get; set; }
         public string Name { get; set; }
         public string State { get; set; }
+        public int CategoryId { get; set; }
     }
 
-    private static readonly Customer[] _customers = new [] { new Customer() {Name="Nic", State="MA"}};
+    public class Category {
+        public int Id { get; set; }
+        public string Name { get; set; }
+    }
+
+    private static readonly Customer[] _customers = new [] { new Customer() {Id = 1, Name="Nic", State="MA", CategoryId=1}};
+    private static readonly Category[] _categories = new [] { new Category() {Id = 1, Name="Tier 1"}};
+
  
     private readonly Dictionary<string, IEnumerable<object>> _map = 
-        new Dictionary<string, IEnumerable<object>>{{ "dbo.Customers", _customers}};
+        new Dictionary<string, IEnumerable<object>>{
+            { "dbo.Customers", _customers},
+            { "dbo.Categories", _categories}};
 
 
 
@@ -46,34 +56,88 @@ public class UnitTest1
             }
         }
 
+    }
 
+    [Fact]
+    public void Test2()
+    {
+        var parseResult = Parser.Parse(@"
+        SELECT 
+            dbo.Customers.Id, 
+            dbo.Customers.Name, 
+            dbo.Categories.Name
+        FROM dbo.Customers 
+        INNER JOIN dbo.Categories 
+            ON dbo.Customers.CategoryId = dbo.Categories.Id
+        WHERE Customers.State = 'MA'");
+        foreach (var batch in parseResult.Script.Batches)
+        {
+            foreach (var statement in batch.Statements)
+            {
+                switch (statement)
+                {
+                    case SqlSelectStatement selectStatement:
+                        ProcessSelectStatement(selectStatement);
+                        break;
+                    default:
+                        WriteLine("Unsupported statment. Printing inner XML");
+                        WriteLine(statement.Xml);
+                        break;
+                }
+            }
+        }
 
+    }
+
+    List<string> GetSchema(SqlFromClause clause) {
+        var result = new List<string>();
+        foreach(SqlTableExpression expression in clause.TableExpressions) {
+            result.AddRange(GetSqlTableExpressionSchema(expression));
+        }
+        return result;
+    }
+
+    List<string> GetSqlTableExpressionSchema(SqlTableExpression expression) {
+        var result = new List<string>();
+        switch (expression) {
+            case SqlJoinTableExpression sqlJoinStatement: 
+                result.AddRange( GetJoinSchema(sqlJoinStatement) );
+                break;
+            case SqlTableRefExpression sqlTableRefStatement: 
+                result.AddRange( GetSqlTableRefExpressionSchema(sqlTableRefStatement) );
+                break;
+        }
+        return result;
+    }
+
+    List<string> GetJoinSchema(SqlJoinTableExpression sqlJoinStatement) {
+        var result = new List<string>();
+        result.AddRange(GetSqlTableExpressionSchema(sqlJoinStatement.Left));
+        result.AddRange(GetSqlTableExpressionSchema(sqlJoinStatement.Right));
+        return result;
+    }
+
+    List<string> GetSqlTableRefExpressionSchema(SqlTableRefExpression sqlTableRefExpression) {
+        Type? mappedType = null;
+        if (_map.ContainsKey(sqlTableRefExpression.Sql)) {
+            mappedType = _map[sqlTableRefExpression.Sql].GetType().GetElementType();
+            return mappedType.GetProperties().Select( p => $"{sqlTableRefExpression.Sql}.{p.Name}").ToList();
+        }
+        return new List<string>();
     }
 
     void ProcessSelectStatement(SqlSelectStatement selectStatement)
     {
         var query = (SqlQuerySpecification)selectStatement.SelectSpecification.QueryExpression;
         var selectClause = query.SelectClause;
-        WriteLine($"Select columns {string.Join(", ", selectClause.SelectExpressions.Select(_ => _.Sql))}");
+        //WriteLine($"Select columns {string.Join(", ", selectClause.SelectExpressions.Select(_ => _.Sql))}");
         Type? mappedType = null;
         IEnumerable<object> mappedCollection = null;
-        var fromClause = query.FromClause;
-        SqlTableExpression? firstTableExpression =
-            fromClause
-                .TableExpressions
-                .FirstOrDefault();
-        if (firstTableExpression != null) {
-            if (_map.ContainsKey(firstTableExpression.Sql)) {
-                mappedCollection = _map[firstTableExpression.Sql];
-                mappedType = mappedCollection.GetType().GetElementType();
-            }
-            if (mappedType == null)
-            {
-                WriteLine($"No such table {firstTableExpression.Sql}");
-                return;
-            } else 
-                WriteLine($"{firstTableExpression.Sql} -> {mappedType.Name}");
-        }
+        SqlFromClause fromClause = query.FromClause;
+        List<string> schema = GetSchema(query.FromClause);
+        WriteLine($"columns \t\t{string.Join(", \r\n\t\t", schema)}");
+
+
 
         /*
         Expression<Func<IEnumerable<dynamic>>> e = 
