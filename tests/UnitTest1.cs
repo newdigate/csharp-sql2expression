@@ -154,7 +154,7 @@ public class UnitTest1
         return result;
     }
 
-    Expression CreateExpression(SqlTableExpression expression, Type elementType, IEnumerable<object> elements, string parameterName) {
+    LambdaExpression CreateExpression(SqlTableExpression expression, Type elementType, IEnumerable<object> elements, string parameterName) {
         switch (expression) {
             case SqlJoinTableExpression sqlJoinStatement: 
                 return null;// CreateJoinExpression(sqlJoinStatement, );
@@ -166,15 +166,18 @@ public class UnitTest1
         return null;
     }
 
-    Expression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type rightMappedType, Type innerMappedType, string outerParameterName, string innerParameterName, SqlConditionClause onClause) {
+    LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type rightMappedType, Type innerMappedType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType) {
         
-        Expression right = CreateExpression(sqlJoinStatement.Right);
-        Expression left = CreateExpression(sqlJoinStatement.Left); 
+        elementType = null;
+        Expression right = CreateExpression(sqlJoinStatement.Right, out Type rightElementType);
+        Expression left = CreateExpression(sqlJoinStatement.Left, out Type leftElementType); 
 
         Type leftKeyType = null;
         Expression outerKeySelector = null;  //Func<TOuter, TKey>
         Expression innerKeySelector = null;  //Func<TInner, TKey>
         Type typeTupleOfTOuterAndTInner = typeof(Tuple<,>).MakeGenericType(rightMappedType, innerMappedType);
+        elementType = typeTupleOfTOuterAndTInner;
+
         LambdaExpression joinSelector = null;
 
         switch (onClause.Expression){
@@ -314,7 +317,7 @@ public class UnitTest1
         }
         return null; 
     }
-    Expression? CreateRefExpression(SqlTableRefExpression sqlTableRefExpression, Type elementType, IEnumerable<object> elementArray, string parameterName) {
+    LambdaExpression? CreateRefExpression(SqlTableRefExpression sqlTableRefExpression, Type elementType, IEnumerable<object> elementArray, string parameterName) {
         
         //Expression<Func<IEnumerable<Customer>>> customersss = () => elementArray;
 
@@ -334,7 +337,7 @@ public class UnitTest1
         return l;
     }
 
-    Expression CreateWhereExpression(SqlTableRefExpression sqlTableRefExpression, Type mappedType, string parameterName) {
+    LambdaExpression? CreateWhereExpression(SqlTableRefExpression sqlTableRefExpression, Type mappedType, string parameterName) {
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( mappedType ); // == IEnumerable<mappedType>
         ParameterExpression paramOfTypeIEnumerableOfMappedType = Expression.Parameter(typeIEnumerableOfMappedType, parameterName);
 
@@ -457,7 +460,8 @@ public class UnitTest1
         return null;
     }
     
-    public Expression? CreateExpression(SqlTableExpression expression) { 
+    public LambdaExpression? CreateExpression(SqlTableExpression expression, out Type elementType) { 
+        elementType = null;
         switch (expression) {
             case SqlQualifiedJoinTableExpression sqlJoinStatement: 
                 Type mappedOuterType = GetMappedType(sqlJoinStatement.Right.Sql);
@@ -468,29 +472,127 @@ public class UnitTest1
                 if (mappedInnerType == null)
                     return null;
 
-                SqlConditionClause s = sqlJoinStatement.OnClause;
-
-                return CreateJoinExpression(sqlJoinStatement, mappedOuterType, mappedInnerType, "o", "i", sqlJoinStatement.OnClause);
+                return CreateJoinExpression(sqlJoinStatement, mappedOuterType, mappedInnerType, "o", "i", sqlJoinStatement.OnClause, out elementType);
 
             case SqlTableRefExpression sqlTableRefStatement: 
                 Type mappedType = GetMappedType(sqlTableRefStatement.Sql);
                 if (mappedType == null)
                     return null;
-
+                elementType = mappedType;
                 IEnumerable<object> mappedCollection2 = GetMappedCollection(sqlTableRefStatement.Sql);
                 return CreateRefExpression(sqlTableRefStatement, mappedType, mappedCollection2, "p");
         }
         return null;
     }
 
-    public Expression CreateExpression(SqlFromClause fromClause) {
+    public LambdaExpression? CreateExpression(SqlFromClause fromClause, out Type elementType) {
+        elementType = null;
         var result = new List<Expression>();
-        foreach(SqlTableExpression expression in fromClause.TableExpressions) {
-            result.Add(CreateExpression(expression));
-        }
-        return result.FirstOrDefault();
+        SqlTableExpression? expression = fromClause.TableExpressions.FirstOrDefault();
+        if (expression == null) 
+            return null;
+        return CreateExpression(expression, out elementType);
     }
     
+    LambdaExpression CreateWhereExpression(SqlWhereClause whereClause, Type elementType) {
+        //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
+        IEnumerable<MethodInfo> whereMethodInfos = 
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where( mi => mi.Name == "Where");
+
+        MethodInfo? whereMethodInfo = 
+            whereMethodInfos
+                .FirstOrDefault( 
+                    mi => 
+                        mi.IsGenericMethodDefinition 
+                        && mi.GetParameters().Length == 2 
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
+        
+        Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( elementType ); // == IEnumerable<elementType>
+        ParameterExpression paramOfTypeIEnumerableOfMappedType = Expression.Parameter(typeIEnumerableOfMappedType);
+
+        ParameterExpression selectorParam = Expression.Parameter(elementType, "c");
+        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(elementType, typeof(bool));
+        Expression selectorExpression = Expression.Constant(true);
+        switch (whereClause.Expression) {
+            case SqlComparisonBooleanExpression sqlComparisonBooleanExpression:
+            {
+                Expression leftKeySelector = null;
+                Type leftKeyType = null;
+                ParameterExpression parameterExpression2 = Expression.Parameter(elementType, "p");
+
+                Expression rightKeySelector = null;
+                Type rightKeyType = null;
+
+                switch (sqlComparisonBooleanExpression.Left) {
+                    case SqlScalarRefExpression leftSqlScalarRefExpression: 
+                    {
+                        SqlMultipartIdentifier leftsqlMultipartIdentifier = leftSqlScalarRefExpression.MultipartIdentifier;
+                        string innertableName = leftsqlMultipartIdentifier.Children.Last().Sql;
+                        PropertyInfo leftKeyProperty = elementType.GetProperty(innertableName);
+                        leftKeyType = leftKeyProperty.PropertyType;
+
+                        leftKeySelector = Expression.MakeMemberAccess(parameterExpression2, leftKeyProperty);
+                    }
+                    break;
+                }
+                
+                switch (sqlComparisonBooleanExpression.Right) {
+                    case SqlScalarRefExpression rightSqlScalarRefExpression: 
+                    {
+                        SqlMultipartIdentifier rightSqlMultipartIdentifier = rightSqlScalarRefExpression.MultipartIdentifier;
+                        string rightcolumnName = rightSqlMultipartIdentifier.Children.Last().Sql;
+                        PropertyInfo rightKeyProperty = elementType.GetProperty(rightcolumnName);
+                        rightKeyType = rightKeyProperty.PropertyType;
+
+                        rightKeySelector = Expression.MakeMemberAccess(parameterExpression2, rightKeyProperty);
+                    }
+                    break;
+
+                    case SqlLiteralExpression rightSqlLiteralExpression:
+                    {
+                        rightKeySelector = Expression.Constant(rightSqlLiteralExpression.Value);
+                    }
+                    break;
+                }
+
+                switch(sqlComparisonBooleanExpression.ComparisonOperator) {
+                    case SqlComparisonBooleanExpressionType.Equals: {
+                        selectorExpression = Expression.MakeBinary(ExpressionType.Equal, leftKeySelector, rightKeySelector);
+                        //typeof(Func<TLeft, bool>)
+                        Type typeFuncTakingTElementTypeReturningBool = 
+                            typeof(Func<,>)
+                                .MakeGenericType(elementType, typeof(bool));
+                        LambdaExpression ll = 
+                            Expression
+                                .Lambda(
+                                    typeFuncTakingTElementTypeReturningBool,
+                                    selectorExpression,
+                                    new ParameterExpression[] { parameterExpression2 }
+                                );
+                        return ll;
+                    }
+                }
+            }
+            break;
+        }
+        LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, selectorExpression, selectorParam);
+
+        // Creating an expression for the method call and specifying its parameter.
+        MethodCallExpression whereMethodCall = Expression.Call(
+            method: whereMethodInfo.MakeGenericMethod(new [] { elementType }),
+            instance: null, 
+            arguments: new Expression[] {paramOfTypeIEnumerableOfMappedType, selector}
+        );
+
+        Type funcTakingIEnumerableOfCustomerReturningIEnumerableOf = typeof(Func<,>).MakeGenericType(typeIEnumerableOfMappedType, typeIEnumerableOfMappedType);
+
+        LambdaExpression l = Expression.Lambda(funcTakingIEnumerableOfCustomerReturningIEnumerableOf, whereMethodCall, new [] {paramOfTypeIEnumerableOfMappedType});
+        return l;
+    }
+
     void ProcessSelectStatement(SqlSelectStatement selectStatement)
     {
         var query = (SqlQuerySpecification)selectStatement.SelectSpecification.QueryExpression;
@@ -500,7 +602,18 @@ public class UnitTest1
         //IEnumerable<object> mappedCollection = _map[];
         SqlFromClause fromClause = query.FromClause;
         List<SqlPropertyRefColumn> schema = GetSchema(query.FromClause);
-        Expression e = this.CreateExpression(query.FromClause);
+        LambdaExpression fromExpression = this.CreateExpression(query.FromClause, out Type fromExpressionReturnType);
+        LambdaExpression whereExpression = this.CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
+        var xxx = fromExpression.Compile();
+        var yyy = whereExpression.Compile();
+        IEnumerable<object> zzz = (IEnumerable<object>)xxx.DynamicInvoke();
+        IEnumerable<object> afterWhere = zzz.Where( yy => (bool)yyy.DynamicInvoke(yy) );
+        
+
+        //var zzz2 = yyy.Invoke();
+       // foreach (var cxx in zzz) {
+
+//        }
 
         Dictionary<Type, List<SqlPropertyRefColumn>>  columnsForWhereClausesGrouped = new Dictionary<Type, List<SqlPropertyRefColumn>>();
         foreach (SqlPropertyRefColumn sqlPropertyRefColumn in schema) {
