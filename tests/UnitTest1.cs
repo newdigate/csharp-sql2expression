@@ -1,13 +1,10 @@
-using Microsoft.SqlServer.TransactSql.ScriptDom;
-using Microsoft.SqlServer.Management.SqlParser;
 using Microsoft.SqlServer.Management.SqlParser.Parser;
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
-using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Collections;
 using static System.Diagnostics.Debug;
+using Newtonsoft.Json;
 
 namespace tests;
 
@@ -108,14 +105,7 @@ public class UnitTest1
                         dbo_Customers_Id = c.Id, 
                         dbo_Customers_Name = c.Name, 
                         dbo_Categories_Name = cat.Name };
-        /*
-        Join<TOuter,TInner,TKey,TResult>(
-            IEnumerable<TOuter>, 
-            IEnumerable<TInner>, 
-            Func<TOuter,TKey>, 
-            Func<TInner,TKey>, 
-            Func<TOuter,TInner,TResult>)
-        */
+
         Expression<Func<IEnumerable<Customer>, IEnumerable<Category>, IEnumerable<dynamic>>> f2 = 
             (   
                 IEnumerable<Customer> customers, 
@@ -254,6 +244,55 @@ public class UnitTest1
         //result.AddRange(GetFields(sqlJoinStatement.Left));
         return result;
     }
+    IEnumerable<FieldMapping> GetFieldMappings(SqlSelectClause selectClause, Type inputType) {
+        
+        List<FieldMapping> result = new List<FieldMapping>();
+        foreach (SqlSelectExpression sqlSelectExpression in selectClause.SelectExpressions) {
+
+            switch (sqlSelectExpression) {
+                case SqlSelectScalarExpression sqlSelectScalarExpression :
+                {
+                    switch(sqlSelectScalarExpression.Expression) {
+                        case SqlScalarRefExpression sqlSelectScalarRefExpression: {
+                            SqlMultipartIdentifier m = sqlSelectScalarRefExpression.MultipartIdentifier;
+
+                            switch (m.Count) {
+                                case 1: break;
+                                case 2: break;
+                                case 3: {
+                                    string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
+                                    string colName = m.Last().Sql;
+
+                                    Type mappedType = GetMappedType(typeName);
+
+                                    PropertyInfo propInfo = mappedType.GetProperty(colName);
+                                    FieldMapping f = new FieldMapping() 
+                                    {
+                                        InputFieldName = new List<string>() {typeName, colName},
+                                        OutputFieldName = m.ToString().Replace(".","_"),
+                                        FieldType = propInfo.PropertyType
+                                    };
+                                    result.Add(f);
+                                    break;
+                                }
+                            }
+
+
+
+                            break;
+                        }
+                    }
+
+                    break;
+                }
+            }
+
+
+        }
+
+        //result.AddRange(GetFields(sqlJoinStatement.Left));
+        return result;
+    }
 
     LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type rightMappedType, Type innerMappedType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType) {
         
@@ -271,7 +310,8 @@ public class UnitTest1
         IEnumerable<Field> fields = GetFields(sqlJoinStatement);
 
         //PropertyInfo wak = new PropertyInfo() {Name = "wak", PropertyType=typeof(string) };
-        Type dynamicType = MyObjectBuilder.CompileResultType(fields);
+        string dynamicTypeName = $"Dynamic_{sqlJoinStatement.Left.Sql.Replace(".","_")}_{sqlJoinStatement.Right.Sql.Replace(".","_")}";
+        Type dynamicType = MyObjectBuilder.CompileResultType(dynamicTypeName, fields);
 
         Type typeFuncReturnsDynamicType = 
             typeof(Func<>)
@@ -486,18 +526,56 @@ public class UnitTest1
 
     }
 
+
+
     LambdaExpression CreateSelectExpression(SqlSelectClause selectClause, Type inputType, string parameterName, out Type? outputType ) {
         outputType = null;
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( inputType ); // == IEnumerable<mappedType>
-        ParameterExpression paramOfTypeIEnumerableOfMappedType = Expression.Parameter(typeIEnumerableOfMappedType);
+        Type typeIEnumerableOfObject = typeof(IEnumerable<>).MakeGenericType( typeof(object) ); // == IEnumerable<mappedType>
 
-        IEnumerable<Field> fields = GetFields(selectClause, inputType);
-        Type dynamicType = MyObjectBuilder.CompileResultType(fields);
+        //ParameterExpression paramOfTypeIEnumerableOfMappedType = Expression.Parameter(typeIEnumerableOfMappedType);
+        ParameterExpression paramOfTypeIEnumerableOfObject = Expression.Parameter(typeIEnumerableOfObject);
 
-        ParameterExpression transformerParam = Expression.Parameter(inputType, parameterName);
-        Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType(inputType, inputType);
-        LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, transformerParam, transformerParam);
+        IEnumerable<FieldMapping> fields = GetFieldMappings(selectClause, inputType);
+        IEnumerable<Field> outputFields = fields.Select( f => new Field() { FieldName = f.OutputFieldName, FieldType=f.FieldType } );
+        Type dynamicType = MyObjectBuilder.CompileResultType("Dynamic_"+inputType.Name, outputFields);
+        outputType = dynamicType;
+
+        ParameterExpression transformerParam = Expression.Parameter(typeof(object), parameterName);
+        Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType( typeof(object), dynamicType);
+
+        List<MemberBinding> bindings = new List<MemberBinding>();
+        foreach (FieldMapping f in fields) {
+            switch (f.InputFieldName.Count) {
+                case 2: {
+                    PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
+                    if (inputProp == null) 
+                        continue;
+                    Expression memberAccess = 
+                        Expression.MakeMemberAccess( 
+                            Expression.Convert(transformerParam, inputType), 
+                            inputProp );
+
+                    inputProp = inputProp.PropertyType.GetProperty(f.InputFieldName.Last());
+                    if (inputProp == null) 
+                        continue;
+                    memberAccess = Expression.MakeMemberAccess( memberAccess, inputProp );
+
+                    bindings.Add(Expression.Bind(dynamicType.GetMember(f.OutputFieldName).First(), memberAccess));
+
+                    break;
+                }
+
+            }
+        }
+
+        Expression newDynamicType = Expression.MemberInit(
+            Expression.New(dynamicType), 
+            bindings
+        );
+
+        LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, newDynamicType, transformerParam);
        
         IEnumerable<MethodInfo> selectMethodInfos = 
             typeof(System.Linq.Enumerable)
@@ -513,17 +591,23 @@ public class UnitTest1
                         && mi.GetParameters().Length == 2 
                         && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
 
-
+        //Expression.TypeAs()
         // Creating an expression for the method call and specifying its parameter.
         MethodCallExpression selectMethodCall = Expression.Call(
-            method: selectMethodInfo.MakeGenericMethod(new [] { inputType, inputType }),
+            method: selectMethodInfo.MakeGenericMethod(new [] { typeof(object), dynamicType }),
             instance: null, 
-            arguments: new Expression[] {paramOfTypeIEnumerableOfMappedType, transformer}
+            arguments: 
+                new Expression[] { 
+                    paramOfTypeIEnumerableOfObject,
+                    transformer}
         );
 
-        ParameterExpression selectorParam = Expression.Parameter(inputType, "c");
-        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(inputType, typeof(bool));
-        LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, Expression.Constant(true), selectorParam);
+        Type typeIEnumerableOfOutputType = typeof(IEnumerable<>).MakeGenericType( dynamicType ); // == IEnumerable<mappedType>
+
+
+        //ParameterExpression selectorParam = Expression.Parameter(inputType, "c");
+        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(typeIEnumerableOfObject, typeIEnumerableOfOutputType);
+        LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, selectMethodCall, paramOfTypeIEnumerableOfObject);
         return selector;
     }
 
@@ -747,9 +831,15 @@ public class UnitTest1
 
         var xxx = fromExpression.Compile();
         var yyy = whereExpression.Compile();
+        var sss = selectExpression.Compile();
+
         IEnumerable<object> zzz = (IEnumerable<object>)xxx.DynamicInvoke();
         IEnumerable<object> afterWhere = zzz.Where( yy => (bool)yyy.DynamicInvoke(yy) );
-        
+        WriteLine(sss.ToString());
+        WriteLine(selectExpression.ToString());
+        var afterSelect = sss.DynamicInvoke( afterWhere.ToList() );
+        WriteLine(JsonConvert.SerializeObject(afterSelect));
+
 
         //var zzz2 = yyy.Invoke();
        // foreach (var cxx in zzz) {
@@ -940,9 +1030,9 @@ public static class LinqRuntimeTypeBuilder
 //  https://stackoverflow.com/questions/15641339/create-new-propertyinfo-object-on-the-fly
 public class MyObjectBuilder
 {
-    public static Type CompileResultType(IEnumerable<Field> Fields)
+    public static Type CompileResultType(string typeSignature, IEnumerable<Field> Fields)
     {
-        TypeBuilder tb = GetTypeBuilder();
+        TypeBuilder tb = GetTypeBuilder(typeSignature);
         ConstructorBuilder constructor = tb.DefineDefaultConstructor(MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
 
         // NOTE: assuming your list contains Field objects with fields FieldName(string) and FieldType(Type)
@@ -953,9 +1043,8 @@ public class MyObjectBuilder
         return objectType;
     }
 
-    private static TypeBuilder GetTypeBuilder()
+    private static TypeBuilder GetTypeBuilder(string typeSignature)
     {
-        var typeSignature = "MyDynamicType";
         var an = new System.Reflection.AssemblyName(typeSignature);
         AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
         ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
@@ -1011,4 +1100,10 @@ public class Field
 {
    public string FieldName;
    public Type FieldType;
+}
+
+public class FieldMapping {
+    public string OutputFieldName;
+    public List<string> InputFieldName;
+    public Type FieldType;
 }
