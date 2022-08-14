@@ -54,7 +54,8 @@ public class UnitTest1
     [Fact]
     public void Test1()
     {
-        var parseResult = Parser.Parse("SELECT Id, Name FROM dbo.Customers WHERE State = 'MA'");
+        const string sql = "SELECT Id, Name FROM dbo.Customers WHERE State = 'MA'";
+        var parseResult = Parser.Parse(sql);
         foreach (var batch in parseResult.Script.Batches)
         {
             foreach (var statement in batch.Statements)
@@ -71,52 +72,21 @@ public class UnitTest1
                 }
             }
         }
-
     }
 
     [Fact]
     public void Test2()
     {
-        var parseResult = Parser.Parse(@"
-        SELECT 
-            dbo.Customers.Id, 
-            dbo.Customers.Name, 
-            dbo.Categories.Name
-        FROM dbo.Customers 
-        INNER JOIN dbo.Categories 
-            ON dbo.Customers.CategoryId = dbo.Categories.Id
-        WHERE dbo.Customers.State = 'MA'");
-
-        var desiredResult = @"
-        var f = from c in _customers
-                join cat in _categories on c.CategoryId equals cat.Id
-                where c.State == ""MA""
-                select new 
-                    {
-                        dbo_Customers_Id = c.Id, 
-                        dbo_Customers_Name = c.Name, 
-                        dbo_Categories_Name = cat.Name };";
-
-        var f = from c in _customers
-                join cat in _categories on c.CategoryId equals cat.Id
-                where c.State == "MA"
-                select new 
-                    {
-                        dbo_Customers_Id = c.Id, 
-                        dbo_Customers_Name = c.Name, 
-                        dbo_Categories_Name = cat.Name };
-
-        Expression<Func<IEnumerable<Customer>, IEnumerable<Category>, IEnumerable<dynamic>>> f2 = 
-            (   
-                IEnumerable<Customer> customers, 
-                IEnumerable<Category> categories
-            ) =>
-            customers
-                .Join<Customer, Category, int, dynamic>( 
-                    categories, 
-                    (Customer cust) => cust.CategoryId, 
-                    (Category cat) => cat.Id, 
-                    (Customer customer, Category category) => new {customer, category} );
+        const string sql = @"
+SELECT 
+    dbo.Customers.Id, 
+    dbo.Customers.Name, 
+    dbo.Categories.Name
+FROM dbo.Customers 
+INNER JOIN dbo.Categories 
+    ON dbo.Customers.CategoryId = dbo.Categories.Id
+WHERE dbo.Customers.State = 'MA'";
+        var parseResult = Parser.Parse(sql);
 
         foreach (var batch in parseResult.Script.Batches)
         {
@@ -134,7 +104,6 @@ public class UnitTest1
                 }
             }
         }
-
     }
 
     List<SqlPropertyRefColumn> GetSchema(SqlFromClause clause) {
@@ -255,15 +224,27 @@ public class UnitTest1
                     switch(sqlSelectScalarExpression.Expression) {
                         case SqlScalarRefExpression sqlSelectScalarRefExpression: {
                             SqlMultipartIdentifier m = sqlSelectScalarRefExpression.MultipartIdentifier;
-
+                            
                             switch (m.Count) {
-                                case 1: break;
-                                case 2: break;
+                                case 1: {
+                                    string propertyName = $"{m.First().Sql}";
+                                    PropertyInfo propInfo = inputType.GetProperty(propertyName);
+                                    FieldMapping f = new FieldMapping() 
+                                    {
+                                        InputFieldName = new List<string>() {propertyName },
+                                        OutputFieldName = m.ToString().Replace(".","_"),
+                                        FieldType = propInfo.PropertyType
+                                    };
+                                    result.Add(f);
+                                    break;
+                                }
                                 case 3: {
                                     string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
                                     string colName = m.Last().Sql;
-
-                                    Type mappedType = GetMappedType(typeName);
+                                    
+                                    Type? mappedType = GetMappedType(typeName);
+                                    if (mappedType == null)
+                                        break;
 
                                     PropertyInfo propInfo = mappedType.GetProperty(colName);
                                     FieldMapping f = new FieldMapping() 
@@ -277,8 +258,7 @@ public class UnitTest1
                                 }
                             }
 
-
-
+                            
                             break;
                         }
                     }
@@ -548,6 +528,15 @@ public class UnitTest1
         List<MemberBinding> bindings = new List<MemberBinding>();
         foreach (FieldMapping f in fields) {
             switch (f.InputFieldName.Count) {
+                case 1: {
+                    PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
+                    Expression memberAccess = 
+                        Expression.MakeMemberAccess( 
+                            Expression.Convert(transformerParam, inputType), 
+                            inputProp );
+                    bindings.Add(Expression.Bind(dynamicType.GetMember(f.OutputFieldName).First(), memberAccess));
+                    break;
+                }
                 case 2: {
                     PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
                     if (inputProp == null) 
@@ -691,6 +680,51 @@ public class UnitTest1
         return CreateExpression(expression, out elementType);
     }
     
+    void GetWhereKeySelectorFromSqlScalarRefExpression(
+        SqlScalarRefExpression leftSqlScalarRefExpression, 
+        Type elementType,
+        ParameterExpression parameterExpression2,
+        out Expression leftKeySelector,
+        out Type? leftKeyType)
+    {
+        leftKeySelector = null;
+        leftKeyType = null;
+        SqlMultipartIdentifier leftsqlMultipartIdentifier = leftSqlScalarRefExpression.MultipartIdentifier;
+        switch (leftsqlMultipartIdentifier.Count) {
+            case 1 : {
+                string leftPropertyName =  leftsqlMultipartIdentifier.Children.First().Sql;
+                PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
+                leftKeyType = mappedProperty.PropertyType;
+
+                leftKeySelector = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);                                
+                break;
+            }
+            case 2 : {
+                break;
+            }
+            case 3 : {
+                string leftTableName = 
+                    leftsqlMultipartIdentifier.Children.First().Sql
+                    + "."
+                    + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;
+                string leftPropertyName = 
+                    leftsqlMultipartIdentifier.Children.First().Sql
+                    + "_"
+                    + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;                     
+                //Type mappedType = GetMappedType(leftTableName);
+                PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
+                Type mappedPropertyType = mappedProperty.PropertyType;
+
+                string propName = leftsqlMultipartIdentifier.Children.Last().Sql;
+                PropertyInfo leftKeyProperty = mappedPropertyType.GetProperty(propName);
+                leftKeyType = leftKeyProperty.PropertyType;
+
+                Expression first = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);
+                leftKeySelector = Expression.MakeMemberAccess(first, leftKeyProperty);
+                break;
+            }
+        }
+    }
     LambdaExpression CreateWhereExpression(SqlWhereClause whereClause, Type elementType) {
         //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
         IEnumerable<MethodInfo> whereMethodInfos = 
@@ -717,68 +751,37 @@ public class UnitTest1
             case SqlComparisonBooleanExpression sqlComparisonBooleanExpression:
             {
                 Expression leftKeySelector = null;
-                Type leftKeyType = null;
+                Type? leftKeyType = null;
                 ParameterExpression parameterExpression2 = Expression.Parameter(elementType, "p");
 
                 Expression rightKeySelector = null;
-                Type rightKeyType = null;
+                Type? rightKeyType = null;
 
                 switch (sqlComparisonBooleanExpression.Left) {
                     case SqlScalarRefExpression leftSqlScalarRefExpression: 
                     {
-                        SqlMultipartIdentifier leftsqlMultipartIdentifier = leftSqlScalarRefExpression.MultipartIdentifier;
-                        string leftTableName = 
-                            leftsqlMultipartIdentifier.Children.First().Sql
-                            + "."
-                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;
-                        string leftPropertyName = 
-                            leftsqlMultipartIdentifier.Children.First().Sql
-                            + "_"
-                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;                     
-                        Type mappedType = GetMappedType(leftTableName);
-                        PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
-                        Type mappedPropertyType = mappedProperty.PropertyType;
-
-                        string propName = leftsqlMultipartIdentifier.Children.Last().Sql;
-                        PropertyInfo leftKeyProperty = mappedPropertyType.GetProperty(propName);
-                        leftKeyType = leftKeyProperty.PropertyType;
-
-                        Expression first = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);
-                        leftKeySelector = Expression.MakeMemberAccess(first, leftKeyProperty);
+                        GetWhereKeySelectorFromSqlScalarRefExpression(leftSqlScalarRefExpression, elementType, parameterExpression2, out leftKeySelector, out leftKeyType);
                     }
                     break;
+                    case SqlLiteralExpression leftSqlLiteralExpression:
+                    {
+                        leftKeySelector = Expression.Constant(leftSqlLiteralExpression.Value);
+                        break;
+                    }
                 }
                 
                 switch (sqlComparisonBooleanExpression.Right) {
                     case SqlScalarRefExpression rightSqlScalarRefExpression: 
                     {
-                        SqlMultipartIdentifier leftsqlMultipartIdentifier = rightSqlScalarRefExpression.MultipartIdentifier;
-                        string leftTableName = 
-                            leftsqlMultipartIdentifier.Children.First().Sql
-                            + "."
-                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;
-                        string leftPropertyName = 
-                            leftsqlMultipartIdentifier.Children.First().Sql
-                            + "_"
-                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;    
-                        Type mappedType = GetMappedType(leftTableName);
-                        PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
-                        Type mappedPropertyType = mappedProperty.PropertyType;
-
-                        string propName = leftsqlMultipartIdentifier.Children.Last().Sql;
-                        PropertyInfo leftKeyProperty = mappedPropertyType.GetProperty(propName);
-                        rightKeyType = leftKeyProperty.PropertyType;
-
-                        Expression first = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);
-                        rightKeySelector = Expression.MakeMemberAccess(first, leftKeyProperty);
+                        GetWhereKeySelectorFromSqlScalarRefExpression(rightSqlScalarRefExpression, elementType, parameterExpression2, out rightKeySelector, out rightKeyType);
+                        break;
                     }
-                    break;
 
                     case SqlLiteralExpression rightSqlLiteralExpression:
                     {
                         rightKeySelector = Expression.Constant(rightSqlLiteralExpression.Value);
+                        break;
                     }
-                    break;
                 }
 
                 switch(sqlComparisonBooleanExpression.ComparisonOperator) {
@@ -835,14 +838,15 @@ public class UnitTest1
 
         IEnumerable<object> zzz = (IEnumerable<object>)xxx.DynamicInvoke();
         IEnumerable<object> afterWhere = zzz.Where( yy => (bool)yyy.DynamicInvoke(yy) );
-        WriteLine(sss.ToString());
+        //WriteLine(sss.ToString());
         WriteLine(fromExpression.ToString());
         WriteLine(whereExpression.ToString());
         WriteLine(selectExpression.ToString());
         var afterSelect = sss.DynamicInvoke( afterWhere.ToList() );
         WriteLine(JsonConvert.SerializeObject(afterSelect));
 
-
+        //Type typeFuncTakesNothingReturnsIEnumerableOfDynamicType = typeof(Func<>).MakeGenericType(outputType);
+        //LambdaExpression result = Expression.Lambda(typeFuncTakesNothingReturnsIEnumerableOfDynamicType, )
         //var zzz2 = yyy.Invoke();
        // foreach (var cxx in zzz) {
 
