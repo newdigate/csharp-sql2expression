@@ -1,7 +1,7 @@
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Reflection;
 
-namespace tests;
+namespace src;
 
 public class FieldMappingProvider {
     private readonly TypeMapper _typeMapper;

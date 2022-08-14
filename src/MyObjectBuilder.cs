@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 
-namespace tests;
+namespace src;
 
 //  https://stackoverflow.com/questions/15641339/create-new-propertyinfo-object-on-the-fly
 public class MyObjectBuilder

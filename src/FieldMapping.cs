@@ -1,4 +1,4 @@
-namespace tests;
+namespace src;
 
 public class FieldMapping {
     public string OutputFieldName;

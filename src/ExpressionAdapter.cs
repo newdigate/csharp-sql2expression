@@ -2,7 +2,7 @@ using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace tests;
+namespace src;
 
 public class ExpressionAdapter {
     private readonly TypeMapper _typeMapper;
