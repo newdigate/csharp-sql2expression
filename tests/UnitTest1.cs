@@ -836,6 +836,8 @@ public class UnitTest1
         IEnumerable<object> zzz = (IEnumerable<object>)xxx.DynamicInvoke();
         IEnumerable<object> afterWhere = zzz.Where( yy => (bool)yyy.DynamicInvoke(yy) );
         WriteLine(sss.ToString());
+        WriteLine(fromExpression.ToString());
+        WriteLine(whereExpression.ToString());
         WriteLine(selectExpression.ToString());
         var afterSelect = sss.DynamicInvoke( afterWhere.ToList() );
         WriteLine(JsonConvert.SerializeObject(afterSelect));
