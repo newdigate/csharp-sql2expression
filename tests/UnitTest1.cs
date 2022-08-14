@@ -5,6 +5,7 @@ using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Collections;
 using static System.Diagnostics.Debug;
 
@@ -87,7 +88,7 @@ public class UnitTest1
         FROM dbo.Customers 
         INNER JOIN dbo.Categories 
             ON dbo.Customers.CategoryId = dbo.Categories.Id
-        WHERE Customers.State = 'MA'");
+        WHERE dbo.Customers.State = 'MA'");
 
         var desiredResult = @"
         var f = from c in _customers
@@ -166,16 +167,125 @@ public class UnitTest1
         return null;
     }
 
+    
+    IEnumerable<Field> GetFields(SqlJoinTableExpression sqlJoinStatement) {
+        List<Field> result = new List<Field>();
+        result.AddRange(GetFields(sqlJoinStatement.Left));
+        result.AddRange(GetFields(sqlJoinStatement.Right));
+        return result;
+    }
+
+
+    IEnumerable<Field> GetFields(SqlTableExpression sqlTableExpression) {
+        List<Field> result = new List<Field>();
+        switch (sqlTableExpression)
+        {
+            case SqlJoinTableExpression sqlJoinTableExpression: 
+            {
+                result.AddRange(GetFields(sqlJoinTableExpression));
+            }
+            break;
+            case SqlTableRefExpression sqlTableRefExpression: 
+            {
+                result.AddRange(GetFields(sqlTableRefExpression));
+            }
+            break;
+        }
+        return result;
+    }
+
+    IEnumerable<Field> GetFields(SqlTableRefExpression sqlTableRefExpression) {
+        List<Field> result = new List<Field>();
+
+        Type? mappedType = GetMappedType(sqlTableRefExpression.Sql);
+        if (mappedType == null)
+            return result;
+
+        Field f = new Field() { FieldName = sqlTableRefExpression.Sql.ToString().Replace(".","_"), FieldType = mappedType};
+        result.Add(f);
+        return result;
+    }
+
+    IEnumerable<Field> GetFields(SqlSelectClause selectClause, Type inputType) {
+        List<Field> result = new List<Field>();
+        foreach (SqlSelectExpression sqlSelectExpression in selectClause.SelectExpressions) {
+
+            switch (sqlSelectExpression) {
+                case SqlSelectScalarExpression sqlSelectScalarExpression :
+                {
+                    switch(sqlSelectScalarExpression.Expression) {
+                        case SqlScalarRefExpression sqlSelectScalarRefExpression: {
+                            SqlMultipartIdentifier m = sqlSelectScalarRefExpression.MultipartIdentifier;
+
+                            switch (m.Count) {
+                                case 1: break;
+                                case 2: break;
+                                case 3: {
+                                    string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
+                                    string colName = m.Last().Sql;
+
+                                    Type mappedType = GetMappedType(typeName);
+
+                                    PropertyInfo propInfo = mappedType.GetProperty(colName);
+                            
+                                    Field f = new Field() 
+                                    {
+                                        FieldName = m.ToString().Replace(".","_"),
+                                        FieldType = propInfo.PropertyType
+                                    };
+                                    result.Add(f);
+                                    break;
+                                }
+                            }
+
+
+
+                            break;
+                        }
+                    }
+
+                    break;
+                }
+            }
+
+
+        }
+
+        //result.AddRange(GetFields(sqlJoinStatement.Left));
+        return result;
+    }
+
     LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type rightMappedType, Type innerMappedType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType) {
         
         elementType = null;
-        Expression right = CreateExpression(sqlJoinStatement.Right, out Type rightElementType);
-        Expression left = CreateExpression(sqlJoinStatement.Left, out Type leftElementType); 
+        LambdaExpression right = CreateExpression(sqlJoinStatement.Right, out Type rightElementType);
+        LambdaExpression left = CreateExpression(sqlJoinStatement.Left, out Type leftElementType); 
 
         Type leftKeyType = null;
         Expression outerKeySelector = null;  //Func<TOuter, TKey>
         Expression innerKeySelector = null;  //Func<TInner, TKey>
-        Type typeTupleOfTOuterAndTInner = typeof(Tuple<,>).MakeGenericType(rightMappedType, innerMappedType);
+        var ssds = () => new {};
+
+
+
+        IEnumerable<Field> fields = GetFields(sqlJoinStatement);
+
+        //PropertyInfo wak = new PropertyInfo() {Name = "wak", PropertyType=typeof(string) };
+        Type dynamicType = MyObjectBuilder.CompileResultType(fields);
+
+        Type typeFuncReturnsDynamicType = 
+            typeof(Func<>)
+                .MakeGenericType(dynamicType);
+
+        ParameterExpression innerParameterExpression = Expression.Parameter(innerMappedType, "inner");
+        ParameterExpression outerParameterExpression = Expression.Parameter(rightMappedType, "outer");
+        
+        List<MemberBinding> bindings = new List<MemberBinding>();
+        bindings.Add(Expression.Bind(dynamicType.GetMember(sqlJoinStatement.Left.Sql.ToString().Replace(".","_"))[0], innerParameterExpression));
+        bindings.Add(Expression.Bind(dynamicType.GetMember(sqlJoinStatement.Right.Sql.ToString().Replace(".","_"))[0], outerParameterExpression));
+                    
+
+        Type typeTupleOfTOuterAndTInner = dynamicType;//.MakeGenericType(rightMappedType, innerMappedType);
         elementType = typeTupleOfTOuterAndTInner;
 
         LambdaExpression joinSelector = null;
@@ -218,13 +328,13 @@ public class UnitTest1
             
                 ConstructorInfo? constructorInfo = 
                     typeTupleOfTOuterAndTInner
-                        .GetConstructor(new Type[] {rightMappedType, innerMappedType});
+                        .GetConstructor(new Type[] {} );
                 
-                ParameterExpression innerParameterExpression = Expression.Parameter(innerMappedType, "inner");
-                ParameterExpression outerParameterExpression = Expression.Parameter(rightMappedType, "outer");
+
 
                 Expression testExpr = Expression.MemberInit(
-                    Expression.New(constructorInfo, new Expression [] {outerParameterExpression, innerParameterExpression })
+                    Expression.New(constructorInfo, new Expression [] { }),
+                    bindings
                 );
 
                 joinSelector = Expression.Lambda( testExpr, new [] {outerParameterExpression, innerParameterExpression} );
@@ -267,8 +377,8 @@ public class UnitTest1
 
         Type typeResultSelector = typeof(Func<,,>).MakeGenericType(rightMappedType, innerMappedType, typeTupleOfTOuterAndTInner);
 
-        ParameterExpression paramOfTypeIEnumerableOfTOuter = Expression.Parameter(typeIEnumerableOfTOuter, outerParameterName);
-        ParameterExpression paramOfTypeIEnumerableOfTInner = Expression.Parameter(typeIEnumerableOfTInner, innerParameterName);
+        //ParameterExpression paramOfTypeIEnumerableOfTOuter = Expression.Parameter(typeIEnumerableOfTOuter, outerParameterName);
+        //ParameterExpression paramOfTypeIEnumerableOfTInner = Expression.Parameter(typeIEnumerableOfTInner, innerParameterName);
 
         ParameterExpression paramOfTypeTOuter = Expression.Parameter(rightMappedType, outerParameterName);
         ParameterExpression paramOfTypeTInner = Expression.Parameter(innerMappedType, innerParameterName);
@@ -278,29 +388,27 @@ public class UnitTest1
         //ParameterExpression selectorParam = Expression.Parameter(mappedType, "c");
         // Creating an expression for the method call and specifying its parameter.
         //        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
-        Type typeOfTuple =
-            typeof(Tuple<,>)
-                .MakeGenericType(rightMappedType, innerMappedType);
+        
 
         Type typeIEnumerableOfTuple =
             typeof(IEnumerable<>)
-                .MakeGenericType(typeOfTuple);
+                .MakeGenericType(dynamicType);
 
-        MethodInfo joinSpecificMethodInfo = joinMethodInfo.MakeGenericMethod(new [] { rightMappedType, innerMappedType, leftKeyType, typeOfTuple });
+        MethodInfo joinSpecificMethodInfo = joinMethodInfo.MakeGenericMethod(new [] { rightMappedType, innerMappedType, leftKeyType, dynamicType });
 
         MethodCallExpression joinMethodCall = Expression.Call(
             method: joinSpecificMethodInfo,
             instance: null, 
-            arguments: new Expression[] {paramOfTypeIEnumerableOfTOuter,paramOfTypeIEnumerableOfTInner, outerKeySelector, innerKeySelector, joinSelector }
+            arguments: new Expression[] {right.Body, left.Body, outerKeySelector, innerKeySelector, joinSelector }
         );
 
-        Type funcTakingIEnumerableOfCustomerAndIEnumerableOfCategoryReturningIEnumerableOfTuple =
-            typeof(Func<,,>)
-                .MakeGenericType(typeIEnumerableOfTOuter, typeIEnumerableOfTInner, typeIEnumerableOfTuple);
+        Type funcTakingNothingAndReturningIEnumerableOfTuple =
+            typeof(Func<>)
+                .MakeGenericType(typeIEnumerableOfTuple);
 
         LambdaExpression l2 = Expression.Lambda(
-            funcTakingIEnumerableOfCustomerAndIEnumerableOfCategoryReturningIEnumerableOfTuple,
-            joinMethodCall, new [] { paramOfTypeIEnumerableOfTOuter, paramOfTypeIEnumerableOfTInner });
+            funcTakingNothingAndReturningIEnumerableOfTuple,
+            joinMethodCall, new ParameterExpression[] { });
         return l2;
 
     }
@@ -378,12 +486,17 @@ public class UnitTest1
 
     }
 
-    Expression CreateSelectExpression(SqlWhereClause whereClause, Type mappedType, string parameterName ) {
-        Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( mappedType ); // == IEnumerable<mappedType>
+    LambdaExpression CreateSelectExpression(SqlSelectClause selectClause, Type inputType, string parameterName, out Type? outputType ) {
+        outputType = null;
+
+        Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( inputType ); // == IEnumerable<mappedType>
         ParameterExpression paramOfTypeIEnumerableOfMappedType = Expression.Parameter(typeIEnumerableOfMappedType);
 
-        ParameterExpression transformerParam = Expression.Parameter(mappedType, parameterName);
-        Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType(mappedType, mappedType);
+        IEnumerable<Field> fields = GetFields(selectClause, inputType);
+        Type dynamicType = MyObjectBuilder.CompileResultType(fields);
+
+        ParameterExpression transformerParam = Expression.Parameter(inputType, parameterName);
+        Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType(inputType, inputType);
         LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, transformerParam, transformerParam);
        
         IEnumerable<MethodInfo> selectMethodInfos = 
@@ -403,13 +516,13 @@ public class UnitTest1
 
         // Creating an expression for the method call and specifying its parameter.
         MethodCallExpression selectMethodCall = Expression.Call(
-            method: selectMethodInfo.MakeGenericMethod(new [] { mappedType, mappedType }),
+            method: selectMethodInfo.MakeGenericMethod(new [] { inputType, inputType }),
             instance: null, 
             arguments: new Expression[] {paramOfTypeIEnumerableOfMappedType, transformer}
         );
 
-        ParameterExpression selectorParam = Expression.Parameter(mappedType, "c");
-        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(mappedType, typeof(bool));
+        ParameterExpression selectorParam = Expression.Parameter(inputType, "c");
+        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(inputType, typeof(bool));
         LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, Expression.Constant(true), selectorParam);
         return selector;
     }
@@ -530,11 +643,24 @@ public class UnitTest1
                     case SqlScalarRefExpression leftSqlScalarRefExpression: 
                     {
                         SqlMultipartIdentifier leftsqlMultipartIdentifier = leftSqlScalarRefExpression.MultipartIdentifier;
-                        string innertableName = leftsqlMultipartIdentifier.Children.Last().Sql;
-                        PropertyInfo leftKeyProperty = elementType.GetProperty(innertableName);
+                        string leftTableName = 
+                            leftsqlMultipartIdentifier.Children.First().Sql
+                            + "."
+                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;
+                        string leftPropertyName = 
+                            leftsqlMultipartIdentifier.Children.First().Sql
+                            + "_"
+                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;                     
+                        Type mappedType = GetMappedType(leftTableName);
+                        PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
+                        Type mappedPropertyType = mappedProperty.PropertyType;
+
+                        string propName = leftsqlMultipartIdentifier.Children.Last().Sql;
+                        PropertyInfo leftKeyProperty = mappedPropertyType.GetProperty(propName);
                         leftKeyType = leftKeyProperty.PropertyType;
 
-                        leftKeySelector = Expression.MakeMemberAccess(parameterExpression2, leftKeyProperty);
+                        Expression first = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);
+                        leftKeySelector = Expression.MakeMemberAccess(first, leftKeyProperty);
                     }
                     break;
                 }
@@ -542,12 +668,25 @@ public class UnitTest1
                 switch (sqlComparisonBooleanExpression.Right) {
                     case SqlScalarRefExpression rightSqlScalarRefExpression: 
                     {
-                        SqlMultipartIdentifier rightSqlMultipartIdentifier = rightSqlScalarRefExpression.MultipartIdentifier;
-                        string rightcolumnName = rightSqlMultipartIdentifier.Children.Last().Sql;
-                        PropertyInfo rightKeyProperty = elementType.GetProperty(rightcolumnName);
-                        rightKeyType = rightKeyProperty.PropertyType;
+                        SqlMultipartIdentifier leftsqlMultipartIdentifier = rightSqlScalarRefExpression.MultipartIdentifier;
+                        string leftTableName = 
+                            leftsqlMultipartIdentifier.Children.First().Sql
+                            + "."
+                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;
+                        string leftPropertyName = 
+                            leftsqlMultipartIdentifier.Children.First().Sql
+                            + "_"
+                            + leftsqlMultipartIdentifier.Children.Skip(1).First().Sql;    
+                        Type mappedType = GetMappedType(leftTableName);
+                        PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
+                        Type mappedPropertyType = mappedProperty.PropertyType;
 
-                        rightKeySelector = Expression.MakeMemberAccess(parameterExpression2, rightKeyProperty);
+                        string propName = leftsqlMultipartIdentifier.Children.Last().Sql;
+                        PropertyInfo leftKeyProperty = mappedPropertyType.GetProperty(propName);
+                        rightKeyType = leftKeyProperty.PropertyType;
+
+                        Expression first = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);
+                        rightKeySelector = Expression.MakeMemberAccess(first, leftKeyProperty);
                     }
                     break;
 
@@ -604,6 +743,8 @@ public class UnitTest1
         List<SqlPropertyRefColumn> schema = GetSchema(query.FromClause);
         LambdaExpression fromExpression = this.CreateExpression(query.FromClause, out Type fromExpressionReturnType);
         LambdaExpression whereExpression = this.CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
+        LambdaExpression selectExpression = this.CreateSelectExpression(query.SelectClause, fromExpressionReturnType, "sss", out Type? outputType);
+
         var xxx = fromExpression.Compile();
         var yyy = whereExpression.Compile();
         IEnumerable<object> zzz = (IEnumerable<object>)xxx.DynamicInvoke();
@@ -723,4 +864,151 @@ public class UnitTest1
         var whereClause = query.WhereClause;
         WriteLine($"where {whereClause.Expression.Sql}");
     }
+}
+
+// https://stackoverflow.com/questions/606104/how-to-create-linq-expression-tree-to-select-an-anonymous-type
+public static class LinqRuntimeTypeBuilder
+{
+    //private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+    private static System.Reflection.AssemblyName assemblyName = new System.Reflection.AssemblyName() { Name = "DynamicLinqTypes" };
+    private static ModuleBuilder moduleBuilder = null;
+    private static Dictionary<string, Type> builtTypes = new Dictionary<string, Type>();
+
+    static LinqRuntimeTypeBuilder()
+    {
+        moduleBuilder = AssemblyBuilder.DefineDynamicAssembly(assemblyName, AssemblyBuilderAccess.Run).DefineDynamicModule(assemblyName.Name);
+    }
+
+    private static string GetTypeKey(Dictionary<string, Type> fields)
+    {
+        //TODO: optimize the type caching -- if fields are simply reordered, that doesn't mean that they're actually different types, so this needs to be smarter
+        string key = string.Empty;
+        foreach (var field in fields)
+            key += field.Key + ";" + field.Value.Name + ";";
+
+        return key;
+    }
+
+    public static Type GetDynamicType(Dictionary<string, Type> fields)
+    {
+        if (null == fields)
+            throw new ArgumentNullException("fields");
+        if (0 == fields.Count)
+            throw new ArgumentOutOfRangeException("fields", "fields must have at least 1 field definition");
+
+        try
+        {
+            Monitor.Enter(builtTypes);
+            string className = GetTypeKey(fields);
+
+            if (builtTypes.ContainsKey(className))
+                return builtTypes[className];
+
+            TypeBuilder typeBuilder = moduleBuilder.DefineType(className, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Serializable);
+
+            foreach (var field in fields)                    
+                typeBuilder.DefineField(field.Key, field.Value, FieldAttributes.Public);
+
+            builtTypes[className] = typeBuilder.CreateType();
+
+            return builtTypes[className];
+        }
+        catch (Exception ex)
+        {
+            WriteLine( "ERROR: " + ex);
+        }
+        finally
+        {
+            Monitor.Exit(builtTypes);
+        }
+
+        return null;
+    }
+
+
+    private static string GetTypeKey(IEnumerable<PropertyInfo> fields)
+    {
+        return GetTypeKey(fields.ToDictionary(f => f.Name, f => f.PropertyType));
+    }
+
+    public static Type GetDynamicType(IEnumerable<PropertyInfo> fields)
+    {
+        return GetDynamicType(fields.ToDictionary(f => f.Name, f => f.PropertyType));
+    }
+}
+
+//  https://stackoverflow.com/questions/15641339/create-new-propertyinfo-object-on-the-fly
+public class MyObjectBuilder
+{
+    public static Type CompileResultType(IEnumerable<Field> Fields)
+    {
+        TypeBuilder tb = GetTypeBuilder();
+        ConstructorBuilder constructor = tb.DefineDefaultConstructor(MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
+
+        // NOTE: assuming your list contains Field objects with fields FieldName(string) and FieldType(Type)
+        foreach (var field in Fields)
+            CreateProperty(tb, field.FieldName, field.FieldType);
+
+        Type objectType = tb.CreateType();
+        return objectType;
+    }
+
+    private static TypeBuilder GetTypeBuilder()
+    {
+        var typeSignature = "MyDynamicType";
+        var an = new System.Reflection.AssemblyName(typeSignature);
+        AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
+        ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
+        TypeBuilder tb = moduleBuilder.DefineType(typeSignature
+                            , TypeAttributes.Public |
+                            TypeAttributes.Class |
+                            TypeAttributes.AutoClass |
+                            TypeAttributes.AnsiClass |
+                            TypeAttributes.BeforeFieldInit |
+                            TypeAttributes.AutoLayout
+                            , null);
+        return tb;
+    }
+
+    private static void CreateProperty(TypeBuilder tb, string propertyName, Type propertyType)
+    {
+        FieldBuilder fieldBuilder = tb.DefineField("_" + propertyName, propertyType, FieldAttributes.Private);
+
+        PropertyBuilder propertyBuilder = tb.DefineProperty(propertyName, PropertyAttributes.HasDefault, propertyType, null);
+        MethodBuilder getPropMthdBldr = tb.DefineMethod("get_" + propertyName, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, propertyType, Type.EmptyTypes);
+        ILGenerator getIl = getPropMthdBldr.GetILGenerator();
+
+        getIl.Emit(OpCodes.Ldarg_0);
+        getIl.Emit(OpCodes.Ldfld, fieldBuilder);
+        getIl.Emit(OpCodes.Ret);
+
+        MethodBuilder setPropMthdBldr =
+            tb.DefineMethod("set_" + propertyName,
+              MethodAttributes.Public |
+              MethodAttributes.SpecialName |
+              MethodAttributes.HideBySig,
+              null, new[] { propertyType });
+
+        ILGenerator setIl = setPropMthdBldr.GetILGenerator();
+        Label modifyProperty = setIl.DefineLabel();
+        Label exitSet = setIl.DefineLabel();
+
+        setIl.MarkLabel(modifyProperty);
+        setIl.Emit(OpCodes.Ldarg_0);
+        setIl.Emit(OpCodes.Ldarg_1);
+        setIl.Emit(OpCodes.Stfld, fieldBuilder);
+
+        setIl.Emit(OpCodes.Nop);
+        setIl.MarkLabel(exitSet);
+        setIl.Emit(OpCodes.Ret);
+
+        propertyBuilder.SetGetMethod(getPropMthdBldr);
+        propertyBuilder.SetSetMethod(setPropMthdBldr);
+    }
+}
+
+public class Field
+{
+   public string FieldName;
+   public Type FieldType;
 }
