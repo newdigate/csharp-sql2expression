@@ -102,7 +102,36 @@ WHERE dbo.Customers.State = 'MA'";
         WriteLine(fromExpression.ToString());
         WriteLine(whereExpression.ToString());
         WriteLine(selectExpression.ToString());
-        var afterSelect = sss.DynamicInvoke( afterWhere.ToList() );
+        var afterSelect = sss.DynamicInvoke( afterWhere );
         WriteLine(JsonConvert.SerializeObject(afterSelect));
+
+        Expression source = Expression.Constant(fromExpression.Body);
+
+     IEnumerable<MethodInfo> whereMethodInfos = 
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where( mi => mi.Name == "Where");
+
+        MethodInfo? whereMethodInfo = 
+            whereMethodInfos
+                .FirstOrDefault( 
+                    mi => 
+                        mi.IsGenericMethodDefinition 
+                        && mi.GetParameters().Length == 2 
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
     }
+
+
+    [Fact]
+    public void TestAssignment() {
+        IEnumerable<object> enumObjects = new List<Category>();
+    }
+
+    /*
+    [Fact]
+    public void TestAssignment2() {
+        IEnumerable<object> enumObjects = new List<int>();
+    }
+    */
 }
