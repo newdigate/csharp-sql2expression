@@ -11,17 +11,23 @@ using src;
 public class UnitTest1
 {
     private readonly ExpressionAdapter _expressionAdapter;
+    private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
     private static readonly Customer[] _customers = new [] { new Customer() {Id = 1, Name="Nic", State="MA", CategoryId=1}};
     private static readonly Category[] _categories = new [] { new Category() {Id = 1, Name="Tier 1"}};
 
     public UnitTest1() {
         TypeMapper typeMapper = new TypeMapper(_map);
+
         _expressionAdapter = 
             new ExpressionAdapter(
                 typeMapper, 
                 new CollectionMapper(_map), 
                 new SqlFieldProvider(typeMapper), 
                 new FieldMappingProvider(typeMapper));
+
+        _sqlSelectStatementExpressionAdapter = 
+            new SqlSelectStatementExpressionAdapter(
+                _expressionAdapter);
     }
 
     private readonly Dictionary<string, IEnumerable<object>> _map = 
@@ -41,7 +47,11 @@ public class UnitTest1
                 switch (statement)
                 {
                     case SqlSelectStatement selectStatement:
-                        ProcessSelectStatement(selectStatement);
+                        LambdaExpression lambda = 
+                            _sqlSelectStatementExpressionAdapter
+                                .ProcessSelectStatement(selectStatement);
+                        IEnumerable<object> result = Evaluate(lambda); 
+                        WriteLine(JsonConvert.SerializeObject(result));  
                         break;
                     default:
                         WriteLine("Unsupported statment. Printing inner XML");
@@ -73,7 +83,11 @@ WHERE dbo.Customers.State = 'MA'";
                 switch (statement)
                 {
                     case SqlSelectStatement selectStatement:
-                        ProcessSelectStatement(selectStatement);
+                        LambdaExpression lambda = 
+                            _sqlSelectStatementExpressionAdapter
+                                .ProcessSelectStatement(selectStatement);
+                        IEnumerable<object> result = Evaluate(lambda); 
+                        WriteLine(JsonConvert.SerializeObject(result));  
                         break;
                     default:
                         WriteLine("Unsupported statment. Printing inner XML");
@@ -84,7 +98,35 @@ WHERE dbo.Customers.State = 'MA'";
         }
     }
 
-    void ProcessSelectStatement(SqlSelectStatement selectStatement)
+    private IEnumerable<object> Evaluate (LambdaExpression expression){
+        Delegate finalDelegate = expression.Compile();
+        IEnumerable<object> result = (IEnumerable<object>)finalDelegate.DynamicInvoke();
+        return result;
+    }
+
+
+    [Fact]
+    public void TestAssignment() {
+        IEnumerable<object> enumObjects = new List<Category>();
+    }
+
+    /*
+    [Fact]
+    public void TestAssignment2() {
+        IEnumerable<object> enumObjects = new List<int>();
+    }
+    */
+}
+
+public class SqlSelectStatementExpressionAdapter {
+    private readonly ExpressionAdapter _expressionAdapter;
+
+    public SqlSelectStatementExpressionAdapter(ExpressionAdapter expressionAdapter)
+    {
+        _expressionAdapter = expressionAdapter;
+    }
+
+    public LambdaExpression ProcessSelectStatement(SqlSelectStatement selectStatement)
     {
         var query = (SqlQuerySpecification)selectStatement.SelectSpecification.QueryExpression;
 
@@ -138,34 +180,12 @@ WHERE dbo.Customers.State = 'MA'";
                 .Lambda(
                     typeFuncTakesNothingReturnsIEnumerableOfTOutputType,
                     finalExpression);
-
-        var xxx = fromExpression.Compile();
-        var yyy = whereExpression.Compile();
-        var sss = selectExpression.Compile();
-
-        IEnumerable<object> zzz = (IEnumerable<object>)xxx.DynamicInvoke();
-        IEnumerable<object> afterWhere = zzz.Where( yy => (bool)yyy.DynamicInvoke(yy) );
-        //WriteLine(sss.ToString());
+        return finalLambda;
+        /*
         WriteLine(fromExpression.ToString());
         WriteLine(whereExpression.ToString());
         WriteLine(selectExpression.ToString());
-        var afterSelect = sss.DynamicInvoke( afterWhere );
-        WriteLine(JsonConvert.SerializeObject(afterSelect));
-
-        Delegate finalDelegate = finalLambda.Compile();
-        IEnumerable<object> result = (IEnumerable<object>)finalDelegate.DynamicInvoke();
+        */
     }
 
-
-    [Fact]
-    public void TestAssignment() {
-        IEnumerable<object> enumObjects = new List<Category>();
-    }
-
-    /*
-    [Fact]
-    public void TestAssignment2() {
-        IEnumerable<object> enumObjects = new List<int>();
-    }
-    */
 }
