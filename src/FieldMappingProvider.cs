@@ -22,41 +22,39 @@ public class FieldMappingProvider {
                     switch(sqlSelectScalarExpression.Expression) {
                         case SqlScalarRefExpression sqlSelectScalarRefExpression: {
                             SqlMultipartIdentifier m = sqlSelectScalarRefExpression.MultipartIdentifier;
-                            
+                            PropertyInfo? propInfo = null;
+                            string? propertyName = null;
+                            List<string>? inputFieldNames = new List<string>();
                             switch (m.Count) {
                                 case 1: {
-                                    string propertyName = $"{m.First().Sql}";
-                                    PropertyInfo propInfo = inputType.GetProperty(propertyName);
-                                    FieldMapping f = new FieldMapping() 
-                                    {
-                                        InputFieldName = new List<string>() {propertyName },
-                                        OutputFieldName = m.ToString().Replace(".","_"),
-                                        FieldType = propInfo.PropertyType
-                                    };
-                                    result.Add(f);
+                                    propertyName = $"{m.First().Sql}";
+                                    inputFieldNames.Add(propertyName);
+                                    propInfo = inputType.GetProperty(propertyName);
                                     break;
                                 }
                                 case 3: {
                                     string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
                                     string colName = m.Last().Sql;
-                                    
+                                    inputFieldNames.Add(typeName);
+                                    inputFieldNames.Add(colName);
+                                    propertyName = colName;
                                     Type? mappedType = _typeMapper.GetMappedType(typeName);
                                     if (mappedType == null)
                                         break;
 
-                                    PropertyInfo propInfo = mappedType.GetProperty(colName);
-                                    FieldMapping f = new FieldMapping() 
-                                    {
-                                        InputFieldName = new List<string>() {typeName, colName},
-                                        OutputFieldName = m.ToString().Replace(".","_"),
-                                        FieldType = propInfo.PropertyType
-                                    };
-                                    result.Add(f);
+                                    propInfo = mappedType.GetProperty(colName);
                                     break;
                                 }
                             }
-
-                            
+                            if (propInfo != null) {
+                                FieldMapping f = new FieldMapping() 
+                                {
+                                    InputFieldName = inputFieldNames,
+                                    OutputFieldName = m.ToString().Replace(".","_"),
+                                    FieldType = propInfo.PropertyType
+                                };
+                                result.Add(f);
+                            }
                             break;
                         }
                     }

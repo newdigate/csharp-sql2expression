@@ -1,7 +1,6 @@
 using Microsoft.SqlServer.Management.SqlParser.Parser;
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
-using System.Reflection;
 using static System.Diagnostics.Debug;
 using Newtonsoft.Json;
 
@@ -10,10 +9,21 @@ using src;
 
 public class UnitTest1
 {
+    #region static members
+    private static readonly Customer[] _customers = new [] { new Customer() {Id = 1, Name="Nic", StateId=1, CategoryId=1, BrandId=1}};
+    private static readonly Category[] _categories = new [] { new Category() {Id = 1, Name="Tier 1"}};
+    private static readonly State[] _states = new [] { new State() { Id = 1, Name = "MA" }};
+    private static readonly Brand[] _brands = new [] { new Brand() { Id = 1, Name = "Coke" }};
+    #endregion
+
     private readonly ExpressionAdapter _expressionAdapter;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
-    private static readonly Customer[] _customers = new [] { new Customer() {Id = 1, Name="Nic", State="MA", CategoryId=1}};
-    private static readonly Category[] _categories = new [] { new Category() {Id = 1, Name="Tier 1"}};
+    private readonly Dictionary<string, IEnumerable<object>> _map = 
+        new Dictionary<string, IEnumerable<object>>{
+            { "dbo.Customers", _customers},
+            { "dbo.States", _states},
+            { "dbo.Brands", _brands},
+            { "dbo.Categories", _categories}};
 
     public UnitTest1() {
         TypeMapper typeMapper = new TypeMapper(_map);
@@ -30,40 +40,16 @@ public class UnitTest1
                 _expressionAdapter);
     }
 
-    private readonly Dictionary<string, IEnumerable<object>> _map = 
-        new Dictionary<string, IEnumerable<object>>{
-            { "dbo.Customers", _customers},
-            { "dbo.Categories", _categories}};
-
     [Fact]
-    public void Test1()
+    public void TestSelectStatement()
     {
-        const string sql = "SELECT Id, Name FROM dbo.Customers WHERE State = 'MA'";
+        const string sql = "SELECT Id, Name FROM dbo.Customers WHERE StateId = 1";
         var parseResult = Parser.Parse(sql);
-        foreach (var batch in parseResult.Script.Batches)
-        {
-            foreach (var statement in batch.Statements)
-            {
-                switch (statement)
-                {
-                    case SqlSelectStatement selectStatement:
-                        LambdaExpression lambda = 
-                            _sqlSelectStatementExpressionAdapter
-                                .ProcessSelectStatement(selectStatement);
-                        IEnumerable<object> result = Evaluate(lambda); 
-                        WriteLine(JsonConvert.SerializeObject(result));  
-                        break;
-                    default:
-                        WriteLine("Unsupported statment. Printing inner XML");
-                        WriteLine(statement.Xml);
-                        break;
-                }
-            }
-        }
+        ProcessEvaluateAndDisplayParseResult(parseResult);
     }
 
     [Fact]
-    public void Test2()
+    public void TestSelectJoinStatement()
     {
         const string sql = @"
 SELECT 
@@ -73,9 +59,46 @@ SELECT
 FROM dbo.Customers 
 INNER JOIN dbo.Categories 
     ON dbo.Customers.CategoryId = dbo.Categories.Id
-WHERE dbo.Customers.State = 'MA'";
+WHERE dbo.Customers.StateId = 1";
         var parseResult = Parser.Parse(sql);
 
+        ProcessEvaluateAndDisplayParseResult(parseResult);
+    }
+
+    [Fact]
+    public void TestSelectDoubleJoinStatement()
+    {
+        const string sql = @"
+SELECT dbo.Customers.Id, dbo.Customers.Name,dbo.Categories.Name, dbo.States.Name
+FROM dbo.Customers 
+INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
+INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
+WHERE dbo.States.Name = 'MA'";
+        var parseResult = Parser.Parse(sql);
+        ProcessEvaluateAndDisplayParseResult(parseResult);
+  }
+
+    [Fact]
+    public void TestSelectTripleJoinStatement()
+    {
+        const string sql = @"
+SELECT dbo.Customers.Id, dbo.Customers.Name,dbo.Categories.Name, dbo.States.Name, dbo.Brands.Name
+FROM dbo.Customers 
+INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
+INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
+INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
+WHERE dbo.States.Name = 'MA'";
+        var parseResult = Parser.Parse(sql);
+        ProcessEvaluateAndDisplayParseResult(parseResult);
+    }
+
+    private IEnumerable<object> Evaluate (LambdaExpression expression){
+        Delegate finalDelegate = expression.Compile();
+        IEnumerable<object> result = (IEnumerable<object>)finalDelegate.DynamicInvoke();
+        return result;
+    }
+
+    private void ProcessEvaluateAndDisplayParseResult(ParseResult parseResult) {
         foreach (var batch in parseResult.Script.Batches)
         {
             foreach (var statement in batch.Statements)
@@ -97,95 +120,4 @@ WHERE dbo.Customers.State = 'MA'";
             }
         }
     }
-
-    private IEnumerable<object> Evaluate (LambdaExpression expression){
-        Delegate finalDelegate = expression.Compile();
-        IEnumerable<object> result = (IEnumerable<object>)finalDelegate.DynamicInvoke();
-        return result;
-    }
-
-
-    [Fact]
-    public void TestAssignment() {
-        IEnumerable<object> enumObjects = new List<Category>();
-    }
-
-    /*
-    [Fact]
-    public void TestAssignment2() {
-        IEnumerable<object> enumObjects = new List<int>();
-    }
-    */
-}
-
-public class SqlSelectStatementExpressionAdapter {
-    private readonly ExpressionAdapter _expressionAdapter;
-
-    public SqlSelectStatementExpressionAdapter(ExpressionAdapter expressionAdapter)
-    {
-        _expressionAdapter = expressionAdapter;
-    }
-
-    public LambdaExpression ProcessSelectStatement(SqlSelectStatement selectStatement)
-    {
-        var query = (SqlQuerySpecification)selectStatement.SelectSpecification.QueryExpression;
-
-        LambdaExpression fromExpression = _expressionAdapter.CreateExpression(query.FromClause, out Type fromExpressionReturnType);
-        LambdaExpression whereExpression = _expressionAdapter.CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
-        LambdaExpression selectExpression = _expressionAdapter.CreateSelectExpression(query.SelectClause, fromExpressionReturnType, "sss", out Type? outputType);
-
-        Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( fromExpressionReturnType ); // == IEnumerable<mappedType>
-
-        ParameterExpression selectorParam = Expression.Parameter(fromExpressionReturnType, "c");
-        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(fromExpressionReturnType, typeof(bool));
-        
-        //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
-        IEnumerable<MethodInfo> whereMethodInfos = 
-            typeof(System.Linq.Enumerable)
-                .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .ToList()
-                .Where( mi => mi.Name == "Where");
-
-        MethodInfo? whereMethodInfo = 
-            whereMethodInfos
-                .FirstOrDefault( 
-                    mi => 
-                        mi.IsGenericMethodDefinition 
-                        && mi.GetParameters().Length == 2 
-                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
-               
-
-        // Creating an expression for the method call and specifying its parameter.
-        MethodCallExpression whereMethodCall = Expression.Call(
-            method: whereMethodInfo.MakeGenericMethod(new [] { fromExpressionReturnType }),
-            instance: null, 
-            arguments: new Expression[] {
-                fromExpression.Body, 
-                whereExpression}
-        );
-
-        Expression finalExpression = 
-            Expression
-                .Invoke( 
-                    selectExpression, 
-                    whereMethodCall ); 
-
-        Type typeIEnumerableOfTOutputType = typeof(IEnumerable<>).MakeGenericType( outputType ); // == IEnumerable<mappedType>
-        Type typeFuncTakesNothingReturnsIEnumerableOfTOutputType = 
-            typeof(Func<>)
-                .MakeGenericType(typeIEnumerableOfTOutputType);
-
-        LambdaExpression finalLambda = 
-            Expression
-                .Lambda(
-                    typeFuncTakesNothingReturnsIEnumerableOfTOutputType,
-                    finalExpression);
-        return finalLambda;
-        /*
-        WriteLine(fromExpression.ToString());
-        WriteLine(whereExpression.ToString());
-        WriteLine(selectExpression.ToString());
-        */
-    }
-
 }
