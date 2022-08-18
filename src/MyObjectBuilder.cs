@@ -36,7 +36,7 @@ public class MyObjectBuilder
                     TypeAttributes.AutoLayout,
                     null);
 
-        ConstructorInfo classCtorInfo = typeof(System.Runtime.Serialization.DataContractAttribute).GetConstructor( new Type[] {});
+        ConstructorInfo classCtorInfo = typeof(DynamicDataSetElementAttribute).GetConstructor( new Type[] {});
         CustomAttributeBuilder myCABuilder2 = new CustomAttributeBuilder(
                         classCtorInfo,
                         new object[] {  });
@@ -92,4 +92,8 @@ public class MyObjectBuilder
         propertyBuilder.SetGetMethod(getPropMthdBldr);
         propertyBuilder.SetSetMethod(setPropMthdBldr);
     }
+}
+
+public class DynamicDataSetElementAttribute : Attribute {
+
 }

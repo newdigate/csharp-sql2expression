@@ -33,7 +33,7 @@ public class UnitTest1
                 typeMapper, 
                 new CollectionMapper(_map), 
                 new SqlFieldProvider(typeMapper), 
-                new FieldMappingProvider(typeMapper));
+                new FieldMappingProvider(typeMapper, new UniqueNameProviderFactory()));
 
         _sqlSelectStatementExpressionAdapter = 
             new SqlSelectStatementExpressionAdapter(
@@ -44,6 +44,14 @@ public class UnitTest1
     public void TestSelectStatement()
     {
         const string sql = "SELECT Id, Name FROM dbo.Customers WHERE StateId = 1";
+        var parseResult = Parser.Parse(sql);
+        ProcessEvaluateAndDisplayParseResult(parseResult);
+    }
+
+    [Fact]
+    public void TestSelectStarStatement()
+    {
+        const string sql = "SELECT * FROM dbo.Customers WHERE StateId = 1";
         var parseResult = Parser.Parse(sql);
         ProcessEvaluateAndDisplayParseResult(parseResult);
     }
@@ -91,6 +99,21 @@ WHERE dbo.States.Name = 'MA'";
         var parseResult = Parser.Parse(sql);
         ProcessEvaluateAndDisplayParseResult(parseResult);
     }
+
+    [Fact]
+    public void TestSelectStarFromTripleJoinStatement()
+    {
+        const string sql = @"
+SELECT *
+FROM dbo.Customers 
+INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
+INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
+INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
+WHERE dbo.States.Name = 'MA'";
+        var parseResult = Parser.Parse(sql);
+        ProcessEvaluateAndDisplayParseResult(parseResult);
+    }
+
 
     private IEnumerable<object> Evaluate (LambdaExpression expression){
         Delegate finalDelegate = expression.Compile();
