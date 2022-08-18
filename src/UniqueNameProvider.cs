@@ -5,7 +5,7 @@ public class UniqueNameProvider : IUniqueNameProvider {
 
     public string GetUniqueName(string inputName) {
         string current = inputName;
-        int counter = 0;
+        int counter = 2;
         while (_existingNames.Contains(current)) {
             current = inputName + (counter++).ToString();
         }

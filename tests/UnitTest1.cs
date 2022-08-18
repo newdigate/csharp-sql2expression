@@ -45,7 +45,8 @@ public class UnitTest1
     {
         const string sql = "SELECT Id, Name FROM dbo.Customers WHERE StateId = 1";
         var parseResult = Parser.Parse(sql);
-        ProcessEvaluateAndDisplayParseResult(parseResult);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"Id\":1,\"Name\":\"Nic\"}]");
     }
 
     [Fact]
@@ -53,24 +54,22 @@ public class UnitTest1
     {
         const string sql = "SELECT * FROM dbo.Customers WHERE StateId = 1";
         var parseResult = Parser.Parse(sql);
-        ProcessEvaluateAndDisplayParseResult(parseResult);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"StateId\":1,\"Id\":1,\"Name\":\"Nic\",\"CategoryId\":1,\"BrandId\":1}]");
     }
 
     [Fact]
     public void TestSelectJoinStatement()
     {
         const string sql = @"
-SELECT 
-    dbo.Customers.Id, 
-    dbo.Customers.Name, 
-    dbo.Categories.Name
+SELECT dbo.Customers.Id, dbo.Customers.Name, dbo.Categories.Name
 FROM dbo.Customers 
-INNER JOIN dbo.Categories 
-    ON dbo.Customers.CategoryId = dbo.Categories.Id
+INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.StateId = 1";
         var parseResult = Parser.Parse(sql);
 
-        ProcessEvaluateAndDisplayParseResult(parseResult);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\"}]");
     }
 
     [Fact]
@@ -83,8 +82,9 @@ INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 WHERE dbo.States.Name = 'MA'";
         var parseResult = Parser.Parse(sql);
-        ProcessEvaluateAndDisplayParseResult(parseResult);
-  }
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\"}]");
+    }
 
     [Fact]
     public void TestSelectTripleJoinStatement()
@@ -97,7 +97,8 @@ INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA'";
         var parseResult = Parser.Parse(sql);
-        ProcessEvaluateAndDisplayParseResult(parseResult);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\",\"dbo_Brands_Name\":\"Coke\"}]");
     }
 
     [Fact]
@@ -111,7 +112,8 @@ INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA'";
         var parseResult = Parser.Parse(sql);
-        ProcessEvaluateAndDisplayParseResult(parseResult);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"CategoryId\":1,\"StateId\":1,\"BrandId\":1,\"Id\":1,\"Name\":\"Nic\",\"Id2\":1,\"Name2\":\"Tier 1\",\"Id3\":1,\"Name3\":\"MA\",\"Id4\":1,\"Name4\":\"Coke\"}]");
     }
 
 
@@ -121,7 +123,7 @@ WHERE dbo.States.Name = 'MA'";
         return result;
     }
 
-    private void ProcessEvaluateAndDisplayParseResult(ParseResult parseResult) {
+    private string? ProcessEvaluateAndDisplayParseResult(ParseResult parseResult) {
         foreach (var batch in parseResult.Script.Batches)
         {
             foreach (var statement in batch.Statements)
@@ -133,8 +135,9 @@ WHERE dbo.States.Name = 'MA'";
                             _sqlSelectStatementExpressionAdapter
                                 .ProcessSelectStatement(selectStatement);
                         IEnumerable<object> result = Evaluate(lambda); 
-                        WriteLine(JsonConvert.SerializeObject(result));  
-                        break;
+                        string json = JsonConvert.SerializeObject(result);
+                        WriteLine(json);  
+                        return json;
                     default:
                         WriteLine("Unsupported statment. Printing inner XML");
                         WriteLine(statement.Xml);
@@ -142,5 +145,6 @@ WHERE dbo.States.Name = 'MA'";
                 }
             }
         }
+        return null;
     }
 }
