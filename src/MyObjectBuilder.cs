@@ -24,14 +24,23 @@ public class MyObjectBuilder
         var an = new System.Reflection.AssemblyName(typeSignature);
         AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
         ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
-        TypeBuilder tb = moduleBuilder.DefineType(typeSignature
-                            , TypeAttributes.Public |
-                            TypeAttributes.Class |
-                            TypeAttributes.AutoClass |
-                            TypeAttributes.AnsiClass |
-                            TypeAttributes.BeforeFieldInit |
-                            TypeAttributes.AutoLayout
-                            , null);
+        TypeBuilder tb = 
+            moduleBuilder
+                .DefineType(
+                    typeSignature, 
+                    TypeAttributes.Public |
+                    TypeAttributes.Class |
+                    TypeAttributes.AutoClass |
+                    TypeAttributes.AnsiClass |
+                    TypeAttributes.BeforeFieldInit |
+                    TypeAttributes.AutoLayout,
+                    null);
+
+        ConstructorInfo classCtorInfo = typeof(System.Runtime.Serialization.DataContractAttribute).GetConstructor( new Type[] {});
+        CustomAttributeBuilder myCABuilder2 = new CustomAttributeBuilder(
+                        classCtorInfo,
+                        new object[] {  });
+        tb.SetCustomAttribute(myCABuilder2);
         return tb;
     }
 
@@ -40,6 +49,19 @@ public class MyObjectBuilder
         FieldBuilder fieldBuilder = tb.DefineField("_" + propertyName, propertyType, FieldAttributes.Private);
 
         PropertyBuilder propertyBuilder = tb.DefineProperty(propertyName, PropertyAttributes.HasDefault, propertyType, null);
+        
+        Type[] ctorParams = new Type[] { };
+        ConstructorInfo classCtorInfo = typeof(System.Runtime.Serialization.DataMemberAttribute).GetConstructor(ctorParams);
+        
+        PropertyInfo? dataMemberNameProperty = typeof(System.Runtime.Serialization.DataMemberAttribute).GetProperty("Name");
+        CustomAttributeBuilder myCABuilder2 = new CustomAttributeBuilder(
+                        con: classCtorInfo,
+                        constructorArgs: new object[] {  },
+                        namedProperties: new [] { dataMemberNameProperty },
+                        propertyValues: new object[] { propertyName.Replace("_",".") } );
+
+        propertyBuilder.SetCustomAttribute(myCABuilder2);
+        
         MethodBuilder getPropMthdBldr = tb.DefineMethod("get_" + propertyName, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, propertyType, Type.EmptyTypes);
         ILGenerator getIl = getPropMthdBldr.GetILGenerator();
 
