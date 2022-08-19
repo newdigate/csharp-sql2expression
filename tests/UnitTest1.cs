@@ -50,6 +50,24 @@ public class UnitTest1
     }
 
     [Fact]
+    public void TestSelectColumnAliasStatement()
+    {
+        const string sql = "SELECT Id as CustomerId, Name as CustomerName FROM dbo.Customers WHERE StateId = 1";
+        var parseResult = Parser.Parse(sql);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"CustomerId\":1,\"CustomerName\":\"Nic\"}]");
+    }
+
+    [Fact]
+    public void TestSelectTableAliasStatement()
+    {
+        const string sql = "SELECT c.Id as CustomerId, c.Name as CustomerName FROM dbo.Customers c WHERE c.StateId = 1";
+        var parseResult = Parser.Parse(sql);
+        string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
+        Xunit.Assert.Equal(jsonResult, "[{\"CustomerId\":1,\"CustomerName\":\"Nic\"}]");
+    }
+
+    [Fact]
     public void TestSelectStarStatement()
     {
         const string sql = "SELECT * FROM dbo.Customers WHERE StateId = 1";

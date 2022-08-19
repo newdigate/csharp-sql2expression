@@ -34,6 +34,14 @@ public class FieldMappingProvider {
                                     propInfo = inputType.GetProperty(propertyName);
                                     break;
                                 }
+
+                                case 2: {
+                                    propertyName = $"{m.Last().Sql}";
+                                    inputFieldNames.Add(m.First().Sql);
+                                    inputFieldNames.Add(propertyName);
+                                    propInfo = inputType.GetProperty(propertyName);
+                                    break;
+                                }
                                 case 3: {
                                     string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
                                     string colName = m.Last().Sql;
@@ -52,7 +60,7 @@ public class FieldMappingProvider {
                                 FieldMapping f = new FieldMapping() 
                                 {
                                     InputFieldName = inputFieldNames,
-                                    OutputFieldName = m.ToString().Replace(".","_"),
+                                    OutputFieldName = sqlSelectScalarExpression.Alias?.Sql?? m?.ToString().Replace(".","_"),
                                     FieldType = propInfo.PropertyType
                                 };
                                 result.Add(f);

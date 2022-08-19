@@ -37,11 +37,12 @@ public class ExpressionAdapter {
                 return CreateJoinExpression(sqlJoinStatement, joinOutputType, "o", "i", sqlJoinStatement.OnClause, out elementType);
 
             case SqlTableRefExpression sqlTableRefStatement: 
-                Type mappedType = _typeMapper.GetMappedType(sqlTableRefStatement.Sql);
+                string tableRefName = sqlTableRefStatement.ObjectIdentifier.Sql.ToString();
+                Type mappedType = _typeMapper.GetMappedType(tableRefName);
                 if (mappedType == null)
                     return null;
                 elementType = mappedType;
-                IEnumerable<object> mappedCollection2 = _collectionMapper.GetMappedCollection(sqlTableRefStatement.Sql);
+                IEnumerable<object> mappedCollection2 = _collectionMapper.GetMappedCollection(tableRefName);
                 return CreateRefExpression(sqlTableRefStatement, mappedType, mappedCollection2, "p");
         }
         return null;
@@ -356,7 +357,7 @@ public class ExpressionAdapter {
 
     public LambdaExpression? CreateRefExpression(SqlTableRefExpression sqlTableRefExpression, Type elementType, IEnumerable<object> elementArray, string parameterName) {
         
-        string key = sqlTableRefExpression.Sql;
+        string key = sqlTableRefExpression.ObjectIdentifier.Sql;
         Type? mappedType = _typeMapper.GetMappedType(key);
         if (mappedType == null)
             return null;
@@ -432,6 +433,11 @@ public class ExpressionAdapter {
                 break;
             }
             case 2 : {
+                string leftPropertyName =  leftsqlMultipartIdentifier.Children.Last().Sql;
+                PropertyInfo mappedProperty = elementType.GetProperty(leftPropertyName);
+                leftKeyType = mappedProperty.PropertyType;
+                                
+                leftKeySelector = Expression.MakeMemberAccess(parameterExpression2, mappedProperty);                                
                 break;
             }
             case 3 : {
@@ -570,9 +576,11 @@ public class ExpressionAdapter {
 
         ParameterExpression transformerParam = Expression.Parameter(inputType, parameterName);
         Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType( inputType, dynamicType);
+        
 
         List<MemberBinding> bindings = new List<MemberBinding>();
         foreach (FieldMapping f in fields) {
+            bool isTableRefExpressionUsingAnAlias = f.InputFieldName.First() == parameterName;
             switch (f.InputFieldName.Count) {
                 case 1: {
                     PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
@@ -584,6 +592,15 @@ public class ExpressionAdapter {
                     break;
                 }
                 case 2: {
+                    if (isTableRefExpressionUsingAnAlias) {
+                        PropertyInfo? inputProp2 = inputType.GetProperty(f.InputFieldName.Last().Replace(".", "_"));
+                        Expression memberAccess2 = 
+                            Expression.MakeMemberAccess( 
+                                transformerParam,
+                                inputProp2 );
+                        bindings.Add(Expression.Bind(dynamicType.GetMember(f.OutputFieldName).First(), memberAccess2));
+                        break;
+                    }
                     PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
                     if (inputProp == null) 
                         continue;
@@ -670,12 +687,16 @@ public class ExpressionAdapter {
         return selector;
     }
 
-    public LambdaExpression? CreateExpression(SqlFromClause fromClause, out Type elementType) {
+    public LambdaExpression? CreateSourceExpression(SqlFromClause fromClause, out Type elementType, out string? tableRefExpressionAlias) {
         elementType = null;
+        tableRefExpressionAlias = null;
         var result = new List<Expression>();
         SqlTableExpression? expression = fromClause.TableExpressions.FirstOrDefault();
         if (expression == null) 
             return null;
+        if (expression is SqlTableRefExpression sqlTableRefExpression) {
+            tableRefExpressionAlias = sqlTableRefExpression.Alias.Sql;
+        }
         return CreateExpression(expression, out elementType, null);
     }
 }

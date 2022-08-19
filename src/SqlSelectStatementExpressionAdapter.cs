@@ -15,10 +15,16 @@ public class SqlSelectStatementExpressionAdapter {
     public LambdaExpression ProcessSelectStatement(SqlSelectStatement selectStatement)
     {
         var query = (SqlQuerySpecification)selectStatement.SelectSpecification.QueryExpression;
-
-        LambdaExpression fromExpression = _expressionAdapter.CreateExpression(query.FromClause, out Type fromExpressionReturnType);
-        LambdaExpression whereExpression = _expressionAdapter.CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
-        LambdaExpression selectExpression = _expressionAdapter.CreateSelectExpression(query.SelectClause, fromExpressionReturnType, "sss", out Type? outputType);
+        
+        LambdaExpression? fromExpression = _expressionAdapter.CreateSourceExpression(query.FromClause, out Type fromExpressionReturnType, out string? tableRefExpressionAlias);
+        if (fromExpression == null || fromExpressionReturnType == null)
+            throw new ArgumentException($"Translation of from clause failed: '{query.FromClause.Sql}'");
+        
+        LambdaExpression? whereExpression = null;
+        if (query.WhereClause != null)
+            whereExpression = _expressionAdapter.CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
+        
+        LambdaExpression selectExpression = _expressionAdapter.CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out Type? outputType);
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( fromExpressionReturnType ); // == IEnumerable<mappedType>
 
