@@ -628,7 +628,8 @@ public class ExpressionAdapter {
         );
 
         LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, newDynamicType, transformerParam);
-       
+        return transformer;
+        /*
         IEnumerable<MethodInfo> selectMethodInfos = 
             typeof(System.Linq.Enumerable)
                 .GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -642,6 +643,8 @@ public class ExpressionAdapter {
                         mi.IsGenericMethodDefinition 
                         && mi.GetParameters().Length == 2 
                         && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
+
+        */
         /* 
         IEnumerable<MethodInfo> castMethodInfos = 
             typeof(System.Linq.Enumerable)
@@ -670,6 +673,7 @@ public class ExpressionAdapter {
         */
         //Expression.TypeAs()
         // Creating an expression for the method call and specifying its parameter.
+        /*
         MethodCallExpression selectMethodCall = Expression.Call(
             method: selectMethodInfo.MakeGenericMethod(new [] { inputType, dynamicType }),
             instance: null, 
@@ -688,6 +692,7 @@ public class ExpressionAdapter {
 
         LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, selectMethodCall, paramOfTypeIEnumerableOfObject );
         return selector;
+        */
     }
 
     public LambdaExpression? CreateSourceExpression(SqlFromClause fromClause, out Type elementType, out string? tableRefExpressionAlias) {

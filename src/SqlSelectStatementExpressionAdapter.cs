@@ -59,12 +59,34 @@ public class SqlSelectStatementExpressionAdapter {
                 whereExpression}
         );
 
+        IEnumerable<MethodInfo> selectMethodInfos = 
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where( mi => mi.Name == "Select");
+
+        MethodInfo? selectMethodInfo = 
+            selectMethodInfos
+                .FirstOrDefault( 
+                    mi => 
+                        mi.IsGenericMethodDefinition 
+                        && mi.GetParameters().Length == 2 
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
+
+        MethodCallExpression selectMethodCall = Expression.Call(
+            method: selectMethodInfo.MakeGenericMethod(new [] { fromExpressionReturnType, outputType }),
+            instance: null, 
+            arguments: new Expression[] {
+                whereMethodCall, 
+                selectExpression}
+        );
+/*
         Expression finalExpression = 
             Expression
                 .Invoke( 
                     selectExpression, 
                     whereMethodCall ); 
-
+*/
         Type typeIEnumerableOfTOutputType = typeof(IEnumerable<>).MakeGenericType( outputType ); // == IEnumerable<mappedType>
         Type typeFuncTakesNothingReturnsIEnumerableOfTOutputType = 
             typeof(Func<>)
@@ -74,7 +96,7 @@ public class SqlSelectStatementExpressionAdapter {
             Expression
                 .Lambda(
                     typeFuncTakesNothingReturnsIEnumerableOfTOutputType,
-                    finalExpression);
+                    selectMethodCall);
         return finalLambda;
         /*
         WriteLine(fromExpression.ToString());

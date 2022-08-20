@@ -80,50 +80,40 @@ WHERE dbo.States.Name = 'MA'";
 ```from:```
 ``` c#
 () => 
-    Invoke(
-        collection => collection
-            .Select(p => 
-                new () {
-                    CategoryId = p.dbo_Customers.CategoryId,
-                    StateId = p.dbo_Customers.StateId, 
-                    BrandId = p.dbo_Customers.BrandId, 
-                    Id = p.dbo_Customers.Id, 
-                    Name = p.dbo_Customers.Name, 
-                    Id2 = p.dbo_Categories.Id, 
-                    Name2 = p.dbo_Categories.Name, 
-                    Id3 = p.dbo_States.Id, 
-                    Name3 = p.dbo_States.Name, 
-                    Id4 = p.dbo_Brands.Id, 
-                    Name4 = p.dbo_Brands.Name
-                }), 
-        _brands
-            .Join(
-                _states
-                    .Join(
-                        _categories
-                            .Join(
-                                _customers, 
-                                right => right.Id, 
-                                left => left.CategoryId, 
-                                (right, left) => new {
-                                    dbo_Customers = left, 
-                                    dbo_Categories = right}), 
-                        right => right.Id, 
-                        left => left.dbo_Customers.StateId, 
-                        (right, left) => new {
-                            dbo_Customers = left.dbo_Customers,
-                            dbo_Categories = left.dbo_Categories,
-                            dbo_States = right}), 
-                right => right.Id, 
-                left => left.dbo_Customers.BrandId, 
-                (right, left) => new {
-                    dbo_Customers = left.dbo_Customers, 
-                    dbo_Categories = left.dbo_Categories, 
-                    dbo_States = left.dbo_States, 
-                    dbo_Brands = right})
-            .Where(p => (p.dbo_States.Name == "MA")))
+    _brands
+        .Join(
+            _states
+                .Join(
+                    _categories
+                        .Join(
+                            _customers, 
+                            right => right.Id, 
+                            left => left.CategoryId, 
+                            (right, left) => new {
+                                dbo_Customers = left, 
+                                dbo_Categories = right}), 
+                    right => right.Id, 
+                    left => left.dbo_Customers.StateId, 
+                    (right, left) => new {
+                        dbo_Customers = left.dbo_Customers,
+                        dbo_Categories = left.dbo_Categories,
+                        dbo_States = right}), 
+            right => right.Id, 
+            left => left.dbo_Customers.BrandId, 
+            (right, left) => new {
+                dbo_Customers = left.dbo_Customers, 
+                dbo_Categories = left.dbo_Categories, 
+                dbo_States = left.dbo_States, 
+                dbo_Brands = right})
+        .Where(p => (p.dbo_States.Name == "MA")))
+        .Select(p => new {
+            dbo_Customers_Id = p.dbo_Customers.Id, 
+            dbo_Customers_Name = p.dbo_Customers.Name, 
+            dbo_Categories_Name = p.dbo_Categories.Name, 
+            dbo_States_Name = p.dbo_States.Name, 
+            dbo_Brands_Name = p.dbo_Brands.Name})
 ```
 ```results:```
 ``` javascript
-[{"CategoryId":1,"StateId":1,"BrandId":1,"Id":1,"Name":"Nic","Id2":1,"Name2":"Tier 1","Id3":1,"Name3":"MA","Id4":1,"Name4":"Coke"}]
+[{"dbo_Customers_Id":1,"dbo_Customers_Name":"Nic","dbo_Categories_Name":"Tier 1","dbo_States_Name":"MA","dbo_Brands_Name":"Coke"}]
 ```
