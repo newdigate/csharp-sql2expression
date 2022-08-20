@@ -27,7 +27,7 @@ public class Customer {
     public int StateId { get; set; }
 }
 ```
-then we can translate the ```from```, ```where``` and ```select``` expressions:
+then we can translate the ```from```, ```where``` and ```select``` sql clause to c# expressions:
 
 ```from```:
 ``` c#
