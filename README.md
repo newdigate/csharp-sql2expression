@@ -1,55 +1,114 @@
-# csharp-sql2expression
+# sql2expression
 
-https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150
+A quick and dirty proof-of-concept to convert a SQL select statement into a LINQ expression. 
+
+I'm using [microsoft.sqlserver.management.sqlparser.sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
+
+consider the sql select statement
 ``` sql
-        SELECT 
-            dbo.Customers.Id, 
-            dbo.Customers.Name, 
-            dbo.Categories.Name
-        FROM dbo.Customers 
-        INNER JOIN dbo.Categories 
-            ON dbo.Customers.CategoryId = dbo.Categories.Id
-        WHERE dbo.Customers.State = 'MA'
+SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
 ```
 
-from statement:
+if we map ```dbo.Customer``` to an instance of ```IEnumerable<Customer>```
 ``` c#
-() => _categories
-        .Join(
-            _customer, 
-            outer => outer.Id, 
-            inner => inner.CategoryId, 
-            (outer, inner) => 
-                new Dynamic_dbo_Customers_dbo_Categories() {
-                    dbo_Customers = inner, 
-                    dbo_Categories = outer
-                })
+    private static readonly Customer[] _customers = 
+        new [] { new Customer() {Id = 1, Name="Nic", StateId=1}};
+
+    private readonly Dictionary<string, IEnumerable<object>> _map = 
+        new Dictionary<string, IEnumerable<object>>{
+            { "dbo.Customers", _customers}};
 ```
 
-where clause:
+where ```Customer``` is
 ``` c#
-    p => (p.dbo_Customers.State == "MA")
+public class Customer {
+    public int Id { get; set; }
+    public string Name { get; set; }
+    public int StateId { get; set; }
+}
+```
+then we can translate the ```from```, ```where``` and ```select``` expressions:
+
+```from```:
+``` c#
+    () => _customers
 ```
 
-select clause:
+```where```:
 ``` c#
-    (IEnumerable<object> Param_0) => 
-        Param_0
-            .Select(
-                sss => 
-                    new Dynamic_Dynamic_dbo_Customers_dbo_Categories() 
-                    {
-                        dbo_Customers_Id = Convert(sss, Dynamic_dbo_Customers_dbo_Categories).dbo_Customers.Id, 
-                        dbo_Customers_Name = Convert(sss,Dynamic_dbo_Customers_dbo_Categories).dbo_Customers.Name,
-                        dbo_Categories_Name = Convert(sss, Dynamic_dbo_Customers_dbo_Categories).dbo_Categories.Name
-                    })
+    c => (c.StateId == 1)
 ```
-result:
-``` json
-    [   {
-            "dbo_Customers_Id": 1,
-            "dbo_Customers_Name": "Nic",
-            "dbo_Categories_Name": "Tier 1"
-        }
-    ]
+
+```select```:
+``` c#
+    (IEnumerable<dynamic> collection) => 
+        collection
+            .Select(customer => new {Id = customer.Id, Name = customer.Name})
+```
+and the result is:
+``` javascript
+[{"Id":1,"Name":"Nic"}]
+```
+
+# party trick
+from [TestSelectTripleJoinStatement](tests/UnitTest1.cs#L84)
+
+given the query:
+``` sql
+SELECT * FROM dbo.Customers 
+INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
+INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
+INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
+WHERE dbo.States.Name = 'MA'";
+```
+
+```from:```
+``` c#
+() => 
+    Invoke(
+        collection => collection
+            .Select(p => 
+                new () {
+                    CategoryId = p.dbo_Customers.CategoryId,
+                    StateId = p.dbo_Customers.StateId, 
+                    BrandId = p.dbo_Customers.BrandId, 
+                    Id = p.dbo_Customers.Id, 
+                    Name = p.dbo_Customers.Name, 
+                    Id2 = p.dbo_Categories.Id, 
+                    Name2 = p.dbo_Categories.Name, 
+                    Id3 = p.dbo_States.Id, 
+                    Name3 = p.dbo_States.Name, 
+                    Id4 = p.dbo_Brands.Id, 
+                    Name4 = p.dbo_Brands.Name
+                }), 
+        _brands
+            .Join(
+                _states
+                    .Join(
+                        _categories
+                            .Join(
+                                _customers, 
+                                right => right.Id, 
+                                left => left.CategoryId, 
+                                (right, left) => new {
+                                    dbo_Customers = left, 
+                                    dbo_Categories = right}), 
+                        right => right.Id, 
+                        left => left.dbo_Customers.StateId, 
+                        (right, left) => new {
+                            dbo_Customers = left.dbo_Customers,
+                            dbo_Categories = left.dbo_Categories,
+                            dbo_States = right}), 
+                right => right.Id, 
+                left => left.dbo_Customers.BrandId, 
+                (right, left) => new {
+                    dbo_Customers = left.dbo_Customers, 
+                    dbo_Categories = left.dbo_Categories, 
+                    dbo_States = left.dbo_States, 
+                    dbo_Brands = right})
+            .Where(p => (p.dbo_States.Name == "MA")))
+```
+```results:```
+``` javascript
+[{"CategoryId":1,"StateId":1,"BrandId":1,"Id":1,"Name":"Nic","Id2":1,"Name2":"Tier 1","Id3":1,"Name3":"MA","Id4":1,"Name4":"Coke"}]
 ```

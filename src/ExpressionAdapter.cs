@@ -565,10 +565,10 @@ public class ExpressionAdapter {
         outputType = null;
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( inputType ); // == IEnumerable<mappedType>
-        Type typeIEnumerableOfObject = typeof(IEnumerable<>).MakeGenericType( typeof(object) ); // == IEnumerable<mappedType>
+        //Type typeIEnumerableOfObject = typeof(IEnumerable<>).MakeGenericType( typeof(object) ); // == IEnumerable<mappedType>
 
         //ParameterExpression paramOfTypeIEnumerableOfMappedType = Expression.Parameter(typeIEnumerableOfMappedType);
-        ParameterExpression paramOfTypeIEnumerableOfObject = Expression.Parameter(typeIEnumerableOfObject, "collection");
+        ParameterExpression paramOfTypeIEnumerableOfObject = Expression.Parameter(typeIEnumerableOfMappedType, "collection");
         IEnumerable<FieldMapping> fields = _fieldMappingProvider.GetFieldMappings(selectClause, inputType);
         IEnumerable<Field> outputFields = fields.Select( f => new Field() { FieldName = f.OutputFieldName, FieldType=f.FieldType } );
         Type dynamicType = MyObjectBuilder.CompileResultType("Dynamic_"+inputType.Name, outputFields);
@@ -642,7 +642,7 @@ public class ExpressionAdapter {
                         mi.IsGenericMethodDefinition 
                         && mi.GetParameters().Length == 2 
                         && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
-        
+        /* 
         IEnumerable<MethodInfo> castMethodInfos = 
             typeof(System.Linq.Enumerable)
                 .GetMethods(BindingFlags.Public | BindingFlags.Static)
@@ -656,6 +656,7 @@ public class ExpressionAdapter {
                         mi.IsGenericMethodDefinition 
                         && mi.GetParameters().Length == 1
                         );
+
         //public static IEnumerable<TResult> Cast<TResult>(this IEnumerable source);
         //System.Linq.Enumerable.Cast<int>()
         MethodCallExpression castMethodCall = Expression.Call(
@@ -666,6 +667,7 @@ public class ExpressionAdapter {
                     paramOfTypeIEnumerableOfObject 
                     }
         );
+        */
         //Expression.TypeAs()
         // Creating an expression for the method call and specifying its parameter.
         MethodCallExpression selectMethodCall = Expression.Call(
@@ -673,7 +675,8 @@ public class ExpressionAdapter {
             instance: null, 
             arguments: 
                 new Expression[] { 
-                    castMethodCall,
+                    //castMethodCall,
+                    paramOfTypeIEnumerableOfObject,
                     transformer}
         );
 
@@ -681,7 +684,7 @@ public class ExpressionAdapter {
 
 
         //ParameterExpression selectorParam = Expression.Parameter(inputType, "c");
-        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(typeIEnumerableOfObject, typeIEnumerableOfOutputType);
+        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(typeIEnumerableOfMappedType, typeIEnumerableOfOutputType);
 
         LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, selectMethodCall, paramOfTypeIEnumerableOfObject );
         return selector;
@@ -695,7 +698,7 @@ public class ExpressionAdapter {
         if (expression == null) 
             return null;
         if (expression is SqlTableRefExpression sqlTableRefExpression) {
-            tableRefExpressionAlias = sqlTableRefExpression.Alias.Sql;
+            tableRefExpressionAlias = sqlTableRefExpression.Alias?.Sql;
         }
         return CreateExpression(expression, out elementType, null);
     }

@@ -152,6 +152,7 @@ WHERE dbo.States.Name = 'MA'";
                         LambdaExpression lambda = 
                             _sqlSelectStatementExpressionAdapter
                                 .ProcessSelectStatement(selectStatement);
+                        WriteLine(lambda); 
                         IEnumerable<object> result = Evaluate(lambda); 
                         string json = JsonConvert.SerializeObject(result);
                         WriteLine(json);  

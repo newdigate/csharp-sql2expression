@@ -19,15 +19,18 @@ public class SqlSelectStatementExpressionAdapter {
         LambdaExpression? fromExpression = _expressionAdapter.CreateSourceExpression(query.FromClause, out Type fromExpressionReturnType, out string? tableRefExpressionAlias);
         if (fromExpression == null || fromExpressionReturnType == null)
             throw new ArgumentException($"Translation of from clause failed: '{query.FromClause.Sql}'");
-        
+        System.Diagnostics.Debug.WriteLine(fromExpression.ToString());
+
         LambdaExpression? whereExpression = null;
-        if (query.WhereClause != null)
+        if (query.WhereClause != null) {
             whereExpression = _expressionAdapter.CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
+            System.Diagnostics.Debug.WriteLine(whereExpression.ToString());
+        }
         
         LambdaExpression selectExpression = _expressionAdapter.CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out Type? outputType);
+        System.Diagnostics.Debug.WriteLine(selectExpression.ToString());
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( fromExpressionReturnType ); // == IEnumerable<mappedType>
-
         ParameterExpression selectorParam = Expression.Parameter(fromExpressionReturnType, "c");
         Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(fromExpressionReturnType, typeof(bool));
         
