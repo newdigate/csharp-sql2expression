@@ -11,7 +11,7 @@ SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
 
 if we map ```dbo.Customer``` to an instance of ```IEnumerable<Customer>```
 ``` c#
-    private static readonly Customer[] _customers = 
+    private readonly Customer[] _customers = 
         new [] { new Customer() {Id = 1, Name="Nic", StateId=1}};
 
     private readonly Dictionary<string, IEnumerable<object>> _map = 
@@ -45,7 +45,22 @@ then we can translate the ```from```, ```where``` and ```select``` expressions:
         collection
             .Select(customer => new {Id = customer.Id, Name = customer.Name})
 ```
-and the result is:
+then we combine these expressions into a single lambda expression taking no arguments and returning an ```IEnumerable<dynamic>```
+
+``` c#
+() => 
+    Invoke( 
+        collection => 
+            collection
+                .Select(
+                    p => new {
+                        Id = p.Id, 
+                        Name = p.Name}), 
+        _customers
+            .Where(
+                p => (p.StateId == 1)))
+```
+when we evaluate the expression, the result (serialized to json) is:
 ``` javascript
 [{"Id":1,"Name":"Nic"}]
 ```
