@@ -109,7 +109,7 @@ we should get this expression:
 ```
 
 
-and when evaluating the result, we should get these results:
+and when evaluating this expression for the data in the unit test, we should get these results:
 
 ``` javascript
 [{"dbo_Customers_Id":1,"dbo_Customers_Name":"Nic","dbo_Categories_Name":"Tier 1","dbo_States_Name":"MA","dbo_Brands_Name":"Coke"}]
