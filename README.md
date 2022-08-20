@@ -47,16 +47,14 @@ then we combine these expressions into a single lambda expression taking no argu
 
 ``` c#
 () => 
-    Invoke( 
-        collection => 
-            collection
-                .Select(
-                    p => new {
-                        Id = p.Id, 
-                        Name = p.Name}), 
-        _customers
-            .Where(
-                p => (p.StateId == 1)))
+    _customers
+        .Where(
+            p => (p.StateId == 1))
+        .Select(
+            p => new {
+                Id = p.Id, 
+                Name = p.Name})
+
 ```
 when we evaluate the expression, the result (serialized to json) is:
 ``` javascript
