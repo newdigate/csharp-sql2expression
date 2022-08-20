@@ -77,7 +77,7 @@ INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA'";
 ```
 
-```from:```
+we should get this expression:
 ``` c#
 () => 
     _brands
