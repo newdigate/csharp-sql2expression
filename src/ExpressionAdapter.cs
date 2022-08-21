@@ -463,7 +463,72 @@ public class ExpressionAdapter {
             }
         }
     }
+    private Expression? CreateWhereSelectorExpression(SqlBooleanExpression booleanExpression, Type elementType, ParameterExpression selectorParam) {
+        Expression? selectorExpression = null;
+        switch (booleanExpression) {
+            case SqlComparisonBooleanExpression sqlComparisonBooleanExpression:
+            {
+                Expression leftKeySelector = null;
+                Type? leftKeyType = null;
 
+                Expression rightKeySelector = null;
+                Type? rightKeyType = null;
+
+                switch (sqlComparisonBooleanExpression.Left) {
+                    case SqlScalarRefExpression leftSqlScalarRefExpression: 
+                    {
+                        GetWhereKeySelectorFromSqlScalarRefExpression(leftSqlScalarRefExpression, elementType, selectorParam, out leftKeySelector, out leftKeyType);
+                    }
+                    break;
+                    case SqlLiteralExpression leftSqlLiteralExpression:
+                    {
+                        leftKeySelector = Expression.Constant(leftSqlLiteralExpression.Value);
+                        break;
+                    }
+                }
+                
+                switch (sqlComparisonBooleanExpression.Right) {
+                    case SqlScalarRefExpression rightSqlScalarRefExpression: 
+                    {
+                        GetWhereKeySelectorFromSqlScalarRefExpression(rightSqlScalarRefExpression, elementType, selectorParam, out rightKeySelector, out rightKeyType);
+                        break;
+                    }
+
+                    case SqlLiteralExpression rightSqlLiteralExpression:
+                    {
+                        rightKeySelector = rightSqlLiteralExpression.Type == LiteralValueType.Integer?
+                                        Expression.Constant(Convert.ChangeType(rightSqlLiteralExpression.Value, leftKeySelector.Type))
+                                        :
+                                        Expression.Constant(rightSqlLiteralExpression.Value);
+                        break;
+                    }
+                }
+
+                switch(sqlComparisonBooleanExpression.ComparisonOperator) {
+                    case SqlComparisonBooleanExpressionType.Equals: {
+                        selectorExpression = Expression.MakeBinary(ExpressionType.Equal, leftKeySelector, rightKeySelector);
+                        return selectorExpression;
+
+                    }
+                }
+                break;
+            }
+            case SqlBinaryBooleanExpression sqlBinaryBooleanExpression: {
+                Expression? left = CreateWhereSelectorExpression(sqlBinaryBooleanExpression.Left, elementType, selectorParam);
+                Expression? right = CreateWhereSelectorExpression(sqlBinaryBooleanExpression.Right, elementType, selectorParam);
+                ExpressionType? booleanOperator = null;
+                switch(sqlBinaryBooleanExpression.Operator) {
+                    case SqlBooleanOperatorType.And: booleanOperator = ExpressionType.And; break;
+                    case SqlBooleanOperatorType.Or:  booleanOperator = ExpressionType.Or; break;
+
+                }
+                if (booleanOperator != null)
+                    selectorExpression = Expression.MakeBinary(booleanOperator.Value, left, right);
+                return selectorExpression;
+            }
+        }
+        return selectorExpression;
+    }
     public LambdaExpression CreateWhereExpression(SqlWhereClause whereClause, Type elementType) {
         //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
         IEnumerable<MethodInfo> whereMethodInfos = 
@@ -485,80 +550,12 @@ public class ExpressionAdapter {
 
         ParameterExpression selectorParam = Expression.Parameter(elementType, "c");
         Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(elementType, typeof(bool));
-        Expression selectorExpression = Expression.Constant(true);
-        switch (whereClause.Expression) {
-            case SqlComparisonBooleanExpression sqlComparisonBooleanExpression:
-            {
-                Expression leftKeySelector = null;
-                Type? leftKeyType = null;
-                ParameterExpression parameterExpression2 = Expression.Parameter(elementType, "p");
+        Expression? selectorExpression = CreateWhereSelectorExpression(whereClause.Expression, elementType, selectorParam);
+        
 
-                Expression rightKeySelector = null;
-                Type? rightKeyType = null;
 
-                switch (sqlComparisonBooleanExpression.Left) {
-                    case SqlScalarRefExpression leftSqlScalarRefExpression: 
-                    {
-                        GetWhereKeySelectorFromSqlScalarRefExpression(leftSqlScalarRefExpression, elementType, parameterExpression2, out leftKeySelector, out leftKeyType);
-                    }
-                    break;
-                    case SqlLiteralExpression leftSqlLiteralExpression:
-                    {
-                        leftKeySelector = Expression.Constant(leftSqlLiteralExpression.Value);
-                        break;
-                    }
-                }
-                
-                switch (sqlComparisonBooleanExpression.Right) {
-                    case SqlScalarRefExpression rightSqlScalarRefExpression: 
-                    {
-                        GetWhereKeySelectorFromSqlScalarRefExpression(rightSqlScalarRefExpression, elementType, parameterExpression2, out rightKeySelector, out rightKeyType);
-                        break;
-                    }
-
-                    case SqlLiteralExpression rightSqlLiteralExpression:
-                    {
-                        rightKeySelector = rightSqlLiteralExpression.Type == LiteralValueType.Integer?
-                                        Expression.Constant(Convert.ChangeType(rightSqlLiteralExpression.Value, leftKeySelector.Type))
-                                        :
-                                        Expression.Constant(rightSqlLiteralExpression.Value);
-                        break;
-                    }
-                }
-
-                switch(sqlComparisonBooleanExpression.ComparisonOperator) {
-                    case SqlComparisonBooleanExpressionType.Equals: {
-                        selectorExpression = Expression.MakeBinary(ExpressionType.Equal, leftKeySelector, rightKeySelector);
-                        //typeof(Func<TLeft, bool>)
-                        Type typeFuncTakingTElementTypeReturningBool = 
-                            typeof(Func<,>)
-                                .MakeGenericType(elementType, typeof(bool));
-                        LambdaExpression ll = 
-                            Expression
-                                .Lambda(
-                                    typeFuncTakingTElementTypeReturningBool,
-                                    selectorExpression,
-                                    new ParameterExpression[] { parameterExpression2 }
-                                );
-                        return ll;
-                    }
-                }
-            }
-            break;
-        }
         LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, selectorExpression, selectorParam);
-
-        // Creating an expression for the method call and specifying its parameter.
-        MethodCallExpression whereMethodCall = Expression.Call(
-            method: whereMethodInfo.MakeGenericMethod(new [] { elementType }),
-            instance: null, 
-            arguments: new Expression[] {paramOfTypeIEnumerableOfMappedType, selector}
-        );
-
-        Type funcTakingIEnumerableOfCustomerReturningIEnumerableOf = typeof(Func<,>).MakeGenericType(typeIEnumerableOfMappedType, typeIEnumerableOfMappedType);
-
-        LambdaExpression l = Expression.Lambda(funcTakingIEnumerableOfCustomerReturningIEnumerableOf, whereMethodCall, paramOfTypeIEnumerableOfMappedType);
-        return l;
+        return selector;
     }
 
     public LambdaExpression CreateSelectExpression(SqlSelectClause selectClause, Type inputType, string parameterName, out Type? outputType ) {

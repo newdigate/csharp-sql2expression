@@ -113,7 +113,7 @@ FROM dbo.Customers
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
-WHERE dbo.States.Name = 'MA'";
+WHERE dbo.States.Name = 'MA' and dbo.Brands.Name = 'Coke' ";
         var parseResult = Parser.Parse(sql);
         string? jsonResult = ProcessEvaluateAndDisplayParseResult(parseResult);
         Xunit.Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\",\"dbo_Brands_Name\":\"Coke\"}]");
