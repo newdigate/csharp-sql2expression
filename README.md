@@ -1,6 +1,6 @@
 # sql to expression
 
-A proof-of-concept to convert `SQL select statement` to `LINQ expression`
+A **proof-of-concept** to convert `SQL select statement` to `LINQ expression`
  * using [sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
 
 # how it works
