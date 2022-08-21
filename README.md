@@ -1,6 +1,6 @@
 # sql2expression
 
-A proof-of-concept to convert a SQL select statement into a LINQ expression, using [microsoft.sqlserver.management.sqlparser.sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
+A proof-of-concept to convert a SQL select statement into a LINQ expression, using [sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
 
 consider the sql select statement:
 ``` sql
