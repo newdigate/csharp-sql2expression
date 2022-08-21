@@ -73,8 +73,7 @@ WHERE dbo.States.Name = 'MA'";
 
 we should get this expression:
 ``` c#
-() => 
-    _brands
+() => _brands
         .Join(
             _states
                 .Join(
