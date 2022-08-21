@@ -1,15 +1,13 @@
 # sql2expression
 
-A quick and dirty proof-of-concept to convert a SQL select statement into a LINQ expression. 
+A quick and dirty proof-of-concept to convert a SQL select statement into a LINQ expression, using [microsoft.sqlserver.management.sqlparser.sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
 
-I'm using [microsoft.sqlserver.management.sqlparser.sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
-
-consider the sql select statement
+consider the sql select statement:
 ``` sql
 SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
 ```
 
-if we map ```dbo.Customer``` to an instance of ```IEnumerable<Customer>```
+if we map ```dbo.Customer``` to an instance of ```IEnumerable<Customer>```:
 ``` c#
     private readonly Customer[] _customers = 
         new [] { new Customer() {Id = 1, Name="Nic", StateId=1}};
@@ -19,7 +17,7 @@ if we map ```dbo.Customer``` to an instance of ```IEnumerable<Customer>```
             { "dbo.Customers", _customers}};
 ```
 
-where ```Customer``` is
+where ```Customer``` is:
 ``` c#
 public class Customer {
     public int Id { get; set; }
@@ -41,24 +39,20 @@ then we can translate the ```from```, ```where``` and ```select``` sql clauses t
 
 ```select```:
 ``` c#
-    (IEnumerable<dynamic> collection) => 
-        collection
-            .Select(customer => new {Id = customer.Id, Name = customer.Name})
+    (Customer customer) => new {Id = customer.Id, Name = customer.Name})
 ```
-then we combine these expressions into a single lambda expression taking no arguments and returning an ```IEnumerable<dynamic>```
+combining these expressions into a single lambda expression taking no arguments and returning an ```IEnumerable<dynamic>```:
 
 ``` c#
 () => 
-    Invoke( 
-        collection => 
-            collection
-                .Select(
-                    p => new {
-                        Id = p.Id, 
-                        Name = p.Name}), 
-        _customers
-            .Where(
-                p => (p.StateId == 1)))
+    _customers
+        .Where(
+            p => (p.StateId == 1))
+        .Select(
+            p => new {
+                Id = p.Id, 
+                Name = p.Name})
+
 ```
 when we evaluate the expression, the result (serialized to json) is:
 ``` javascript
@@ -68,7 +62,7 @@ when we evaluate the expression, the result (serialized to json) is:
 # party trick
 from [TestSelectTripleJoinStatement](tests/UnitTest1.cs#L84)
 
-given the query:
+when given the query:
 ``` sql
 SELECT * FROM dbo.Customers 
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
@@ -77,7 +71,7 @@ INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA'";
 ```
 
-```from:```
+we should get this expression:
 ``` c#
 () => 
     _brands
@@ -113,7 +107,10 @@ WHERE dbo.States.Name = 'MA'";
             dbo_States_Name = p.dbo_States.Name, 
             dbo_Brands_Name = p.dbo_Brands.Name})
 ```
-```results:```
+
+
+and when evaluating this expression for the data in the unit test, we should get these results:
+
 ``` javascript
 [{"dbo_Customers_Id":1,"dbo_Customers_Name":"Nic","dbo_Categories_Name":"Tier 1","dbo_States_Name":"MA","dbo_Brands_Name":"Coke"}]
 ```
