@@ -630,6 +630,79 @@ public class ExpressionAdapter {
                     selectorExpression = Expression.MakeBinary(booleanOperator.Value, left, right);
                 return selectorExpression;
             }
+            case SqlInBooleanExpression sqlInBooleanExpression: {
+                string? propName = null;
+                switch (sqlInBooleanExpression.InExpression) {
+                    case SqlColumnRefExpression sqlColumnRefExpression: propName = sqlColumnRefExpression.ColumnName.Sql; break;
+                }
+                if (propName == null)
+                    return null;
+
+                PropertyInfo? propInfo = elementType.GetProperty(propName);
+                if (propInfo == null)
+                    return null;
+                
+                ParameterExpression collectionParameter = Expression.Parameter(propInfo.PropertyType, "z");
+                Expression propertyExpression = Expression.MakeMemberAccess( selectorParam, propInfo);
+                Expression equalsExpression = Expression.MakeBinary(ExpressionType.Equal, collectionParameter, propertyExpression);
+
+                switch (sqlInBooleanExpression.ComparisonValue) {
+                    case SqlInBooleanExpressionCollectionValue sqlInBooleanExpressionCollectionValue:
+                        
+                        List<object> collection = new List<object>();
+                       
+                        foreach(SqlCodeObject value in sqlInBooleanExpressionCollectionValue.Children) {
+                            switch (value) { 
+                                case SqlLiteralExpression sqlLiteralExpression: {
+                                    collection.Add(Convert.ChangeType(sqlLiteralExpression.Value, propInfo.PropertyType)); 
+                                }
+                                break;
+                            }
+                        }
+                        Expression c = 
+                            Expression
+                                .NewArrayInit(
+                                    propInfo.PropertyType, 
+                                    collection.Select( c => Expression.Constant(Convert.ChangeType(c, propInfo.PropertyType)))
+                                );
+                        // public static bool Any<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
+                        IEnumerable<MethodInfo> anyMethodInfos = 
+                            typeof(System.Linq.Enumerable)
+                                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                                .ToList()
+                                .Where( mi => mi.Name == "Any");
+
+                        MethodInfo? anyMethodInfo = 
+                            anyMethodInfos
+                                .FirstOrDefault( 
+                                    mi => 
+                                        mi.IsGenericMethodDefinition 
+                                        && mi.GetParameters().Length == 2 
+                                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
+
+                        LambdaExpression ll = 
+                            Expression
+                                .Lambda(
+                                    typeof(Func<,>)
+                                        .MakeGenericType(propInfo.PropertyType, typeof(bool)),
+                                    equalsExpression, 
+                                    collectionParameter);
+
+                        Expression anyMethodCall = 
+                            Expression.Call(
+                                null, 
+                                anyMethodInfo.MakeGenericMethod(propInfo.PropertyType), 
+                                new Expression[] { 
+                                    c, 
+                                    ll
+                                    } );
+                        
+                        return anyMethodCall;
+                    case SqlInBooleanExpressionValue sqlScalarExpression: break;
+
+                }
+                break;
+            }
         }
         return selectorExpression;
     }

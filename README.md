@@ -11,7 +11,7 @@ SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
 ```
 
 <details>
-  <summary>given (click to expand)</summary>
+  <summary>given... (click to expand)</summary>
   
    - if we map "dbo.Customer" to an instance of IEnumerable &lt; Customer &gt; :
     
@@ -24,7 +24,8 @@ SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
                 { "dbo.Customers", _customers}};
 ```
     
-    where Customer is:
+where Customer is:
+
 ``` c#
         public class Customer {
             public int Id { get; set; }
