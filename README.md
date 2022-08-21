@@ -7,25 +7,35 @@ consider the sql select statement:
 SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
 ```
 
-if we map ```dbo.Customer``` to an instance of ```IEnumerable<Customer>```:
-``` c#
-    private readonly Customer[] _customers = 
-        new [] { new Customer() {Id = 1, Name="Nic", StateId=1}};
 
-    private readonly Dictionary<string, IEnumerable<object>> _map = 
-        new Dictionary<string, IEnumerable<object>>{
-            { "dbo.Customers", _customers}};
-```
-
-where ```Customer``` is:
+<details>
+  <summary>given (click to expand)</summary>
+  
+   - if we map "dbo.Customer" to an instance of IEnumerable &lt; Customer &gt; :
+    
 ``` c#
-public class Customer {
-    public int Id { get; set; }
-    public string Name { get; set; }
-    public int StateId { get; set; }
-}
+        private readonly Customer[] _customers = 
+            new [] { new Customer() {Id = 1, Name="Nic", StateId=1}};
+
+        private readonly Dictionary<string, IEnumerable<object>> _map = 
+            new Dictionary<string, IEnumerable<object>>{
+                { "dbo.Customers", _customers}};
 ```
-then we can translate the ```from```, ```where``` and ```select``` sql clauses to c# expressions:
+    
+    where Customer is:
+``` c#
+        public class Customer {
+            public int Id { get; set; }
+            public string Name { get; set; }
+            public int StateId { get; set; }
+        }
+```
+  
+</details>
+  
+
+
+we can translate the ```from```, ```where``` and ```select``` sql clauses to c# expressions:
 
 ```from```:
 ``` c#
