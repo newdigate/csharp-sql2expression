@@ -1,12 +1,14 @@
 # sql to expression
 
-A proof-of-concept to convert a SQL select statement into a LINQ expression, using [sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
+A proof-of-concept to convert `SQL select statement` to `LINQ expression`
+ * using [sqlcodedom](https://docs.microsoft.com/en-us/dotnet/api/microsoft.sqlserver.management.sqlparser.sqlcodedom?view=sql-smo-150) to parse sql scripts.
+
+# how it works
 
 consider the sql select statement:
 ``` sql
 SELECT Id, Name FROM dbo.Customers WHERE StateId = 1
 ```
-
 
 <details>
   <summary>given (click to expand)</summary>
