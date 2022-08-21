@@ -73,7 +73,7 @@ when we evaluate the expression, the result (serialized to json) is:
 ```
 
 # party trick
-from [TestSelectTripleJoinStatement](tests/UnitTest1.cs#L84)
+from [TestSelectTripleJoinStatement](tests/UnitTest1.cs#L209)
 
 when given the query:
 ``` sql
