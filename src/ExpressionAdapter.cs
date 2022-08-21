@@ -19,7 +19,7 @@ public class ExpressionAdapter {
         _fieldMappingProvider = fieldMappingProvider;
     }
 
-    public LambdaExpression? CreateExpression(SqlTableExpression expression, out Type elementType, Type? joinOutputType) { 
+    public LambdaExpression? CreateExpression(SqlTableExpression expression, out Type? elementType, Type? joinOutputType) { 
         elementType = null;
         switch (expression) {
             case SqlQualifiedJoinTableExpression sqlJoinStatement: 
@@ -44,9 +44,113 @@ public class ExpressionAdapter {
                 elementType = mappedType;
                 IEnumerable<object> mappedCollection2 = _collectionMapper.GetMappedCollection(tableRefName);
                 return CreateRefExpression(sqlTableRefStatement, mappedType, mappedCollection2, "p");
+
+            case SqlDerivedTableExpression sqlDerivedTableExpression:
+                if (sqlDerivedTableExpression.QueryExpression is SqlQuerySpecification sqlQuerySpecification)
+                    return ProcessSelectStatement(sqlQuerySpecification, out elementType);
+/*
+                LambdaExpression? fromExpression = CreateSourceExpression(sqlDerivedTableExpression.QueryExpression.FromClause, out Type fromExpressionReturnType, out string? tableRefExpressionAlias);
+                if (fromExpression == null || fromExpressionReturnType == null)
+                    throw new ArgumentException($"Translation of from clause failed: '{sqlDerivedTableExpression.QueryExpression.FromClause.Sql}'");
+                System.Diagnostics.Debug.WriteLine(fromExpression.ToString());
+
+                     */
+                break; 
         }
         return null;
     }
+
+    public LambdaExpression ProcessSelectStatement(SqlQuerySpecification query, out Type? outputType)
+    {
+        LambdaExpression? fromExpression = CreateSourceExpression(query.FromClause, out Type fromExpressionReturnType, out string? tableRefExpressionAlias);
+        if (fromExpression == null || fromExpressionReturnType == null)
+            throw new ArgumentException($"Translation of from clause failed: '{query.FromClause.Sql}'");
+        System.Diagnostics.Debug.WriteLine(fromExpression.ToString());
+
+        LambdaExpression? whereExpression = null;
+        if (query.WhereClause != null) {
+            whereExpression = CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
+            System.Diagnostics.Debug.WriteLine(whereExpression.ToString());
+        }
+        
+        LambdaExpression selectExpression = CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
+        System.Diagnostics.Debug.WriteLine(selectExpression.ToString());
+
+        Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType( fromExpressionReturnType ); // == IEnumerable<mappedType>
+        ParameterExpression selectorParam = Expression.Parameter(fromExpressionReturnType, "c");
+        Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(fromExpressionReturnType, typeof(bool));
+        
+        //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
+        IEnumerable<MethodInfo> whereMethodInfos = 
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where( mi => mi.Name == "Where");
+
+        MethodInfo? whereMethodInfo = 
+            whereMethodInfos
+                .FirstOrDefault( 
+                    mi => 
+                        mi.IsGenericMethodDefinition 
+                        && mi.GetParameters().Length == 2 
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
+               
+
+        // Creating an expression for the method call and specifying its parameter.
+        MethodCallExpression whereMethodCall = Expression.Call(
+            method: whereMethodInfo.MakeGenericMethod(new [] { fromExpressionReturnType }),
+            instance: null, 
+            arguments: new Expression[] {
+                fromExpression.Body, 
+                whereExpression}
+        );
+
+        IEnumerable<MethodInfo> selectMethodInfos = 
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where( mi => mi.Name == "Select");
+
+        MethodInfo? selectMethodInfo = 
+            selectMethodInfos
+                .FirstOrDefault( 
+                    mi => 
+                        mi.IsGenericMethodDefinition 
+                        && mi.GetParameters().Length == 2 
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>) );
+
+        MethodCallExpression selectMethodCall = Expression.Call(
+            method: selectMethodInfo.MakeGenericMethod(new [] { fromExpressionReturnType, outputType }),
+            instance: null, 
+            arguments: new Expression[] {
+                whereMethodCall, 
+                selectExpression}
+        );
+/*
+        Expression finalExpression = 
+            Expression
+                .Invoke( 
+                    selectExpression, 
+                    whereMethodCall ); 
+*/
+        Type typeIEnumerableOfTOutputType = typeof(IEnumerable<>).MakeGenericType( outputType ); // == IEnumerable<mappedType>
+        Type typeFuncTakesNothingReturnsIEnumerableOfTOutputType = 
+            typeof(Func<>)
+                .MakeGenericType(typeIEnumerableOfTOutputType);
+
+        LambdaExpression finalLambda = 
+            Expression
+                .Lambda(
+                    typeFuncTakesNothingReturnsIEnumerableOfTOutputType,
+                    selectMethodCall);
+        return finalLambda;
+        /*
+        WriteLine(fromExpression.ToString());
+        WriteLine(whereExpression.ToString());
+        WriteLine(selectExpression.ToString());
+        */
+    }
+
 
     private string GetTypeNameRecursive(SqlTableExpression tableExpression) {
         switch(tableExpression){
@@ -699,8 +803,9 @@ public class ExpressionAdapter {
         SqlTableExpression? expression = fromClause.TableExpressions.FirstOrDefault();
         if (expression == null) 
             return null;
-        if (expression is SqlTableRefExpression sqlTableRefExpression) {
-            tableRefExpressionAlias = sqlTableRefExpression.Alias?.Sql;
+        switch (expression){
+            case SqlTableRefExpression sqlTableRefExpression: tableRefExpressionAlias = sqlTableRefExpression.Alias?.Sql; break;
+            case SqlDerivedTableExpression sqlDerivedTableExpression: tableRefExpressionAlias = sqlDerivedTableExpression.Alias?.Sql; break;
         }
         return CreateExpression(expression, out elementType, null);
     }

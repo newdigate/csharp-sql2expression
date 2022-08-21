@@ -273,6 +273,32 @@ WHERE dbo.States.Name = 'MA'";
         );
     }
 
+    [Fact]
+    public void TestEmbeddedSelectStatement()
+    {
+        const string sql = "SELECT c.Name, c.Id FROM (SELECT Id, Name FROM dbo.Customers WHERE StateId = 1) c";
+        var parseResult = Parser.Parse(sql);
+
+        SqlSelectStatement? selectStatement =
+            parseResult.Script.Batches
+                .SelectMany( b => b.Statements)
+                .OfType<SqlSelectStatement>()
+                .Cast<SqlSelectStatement>()
+                .FirstOrDefault();
+
+        LambdaExpression? lambda = selectStatement != null?
+            _sqlSelectStatementExpressionAdapter
+                .ProcessSelectStatement(selectStatement) : null;
+        WriteLine(lambda); 
+
+        IEnumerable<object> result = Evaluate(lambda); 
+
+        string jsonResult = JsonConvert.SerializeObject(result);
+        WriteLine(jsonResult);  
+
+        Xunit.Assert.Equal(jsonResult, "[{\"c_Name\":\"Nic\",\"c_Id\":1}]");
+    }
+
 
     private IEnumerable<object> Evaluate (LambdaExpression expression){
         Delegate finalDelegate = expression.Compile();
