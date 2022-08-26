@@ -1,24 +1,6 @@
 namespace src;
 
-/*
-public class CreateLambdaExpressionForSqlTableExpression {
-    
-    public LambdaExpression CreateExpression(SqlTableExpression expression, Type elementType, IEnumerable<object> elements, string parameterName) {
-        switch (expression) {
-            case SqlJoinTableExpression sqlJoinStatement: 
-                return null;// CreateJoinExpression(sqlJoinStatement, );
-                break;
-            case SqlTableRefExpression sqlTableRefStatement: 
-                return CreateRefExpression(sqlTableRefStatement, elementType, elements, parameterName );
-                break;
-        }
-        return null;
-    }
-
-    
-}
-*/
-public class TypeMapper {
+public class TypeMapper : ITypeMapper  {
     private readonly Dictionary<string, IEnumerable<object>> _map;
 
     public TypeMapper(Dictionary<string, IEnumerable<object>> map)
