@@ -52,7 +52,7 @@ we can translate the ```from```, ```where``` and ```select``` sql clauses to c# 
 
 ```select```:
 ``` c#
-    (Customer c) => new {Id = c.Id, Name = c.Name})
+    (Customer c) => new {Id = c.Id, Name = c.Name}
 ```
 combining these expressions into a single lambda expression taking no arguments and returning an ```IEnumerable<dynamic>```:
 
