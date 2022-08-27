@@ -82,22 +82,7 @@ public class ExpressionAdapter : IExpressionAdapter
         MethodCallExpression? whereMethodCall = null;
         if (whereExpression != null)
         {
-
-            //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
-            IEnumerable<MethodInfo> whereMethodInfos =
-                typeof(System.Linq.Enumerable)
-                    .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                    .ToList()
-                    .Where(mi => mi.Name == "Where");
-
-            MethodInfo? whereMethodInfo =
-                whereMethodInfos
-                    .FirstOrDefault(
-                        mi =>
-                            mi.IsGenericMethodDefinition
-                            && mi.GetParameters().Length == 2
-                            && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
-
+            MethodInfo? whereMethodInfo = GetIEnumerableWhereMethodInfo();
             // Creating an expression for the method call and specifying its parameter.
             whereMethodCall = Expression.Call(
                 method: whereMethodInfo.MakeGenericMethod(new[] { fromExpressionReturnType }),
@@ -108,20 +93,7 @@ public class ExpressionAdapter : IExpressionAdapter
             );
         }
 
-        IEnumerable<MethodInfo> selectMethodInfos =
-            typeof(System.Linq.Enumerable)
-                .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .ToList()
-                .Where(mi => mi.Name == "Select");
-
-        MethodInfo? selectMethodInfo =
-            selectMethodInfos
-                .FirstOrDefault(
-                    mi =>
-                        mi.IsGenericMethodDefinition
-                        && mi.GetParameters().Length == 2
-                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
-
+        MethodInfo? selectMethodInfo = GetIEnumerableSelectMethodInfo();
         MethodCallExpression selectMethodCall = Expression.Call(
             method: selectMethodInfo.MakeGenericMethod(new[] { fromExpressionReturnType, outputType }),
             instance: null,
@@ -143,6 +115,42 @@ public class ExpressionAdapter : IExpressionAdapter
         return finalLambda;
     }
 
+    private static MethodInfo? GetIEnumerableSelectMethodInfo()
+    {
+        IEnumerable<MethodInfo> selectMethodInfos =
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where(mi => mi.Name == "Select");
+
+        MethodInfo? selectMethodInfo =
+            selectMethodInfos
+                .FirstOrDefault(
+                    mi =>
+                        mi.IsGenericMethodDefinition
+                        && mi.GetParameters().Length == 2
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
+        return selectMethodInfo;
+    }
+
+    private static MethodInfo? GetIEnumerableWhereMethodInfo()
+    {
+        //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
+        IEnumerable<MethodInfo> whereMethodInfos =
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where(mi => mi.Name == "Where");
+
+        MethodInfo? whereMethodInfo =
+            whereMethodInfos
+                .FirstOrDefault(
+                    mi =>
+                        mi.IsGenericMethodDefinition
+                        && mi.GetParameters().Length == 2
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
+        return whereMethodInfo;
+    }
 
     private string GetTypeNameRecursive(SqlTableExpression tableExpression)
     {
@@ -154,6 +162,7 @@ public class ExpressionAdapter : IExpressionAdapter
         }
         return "_";
     }
+
     private void CreateJoinConditionsExpression(
         SqlScalarRefExpression innerSqlScalarRefExpression,
         Type leftMappedType,
@@ -285,7 +294,6 @@ public class ExpressionAdapter : IExpressionAdapter
     }
     public LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type? joinOutputType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType)
     {
-
         elementType = null;
         LambdaExpression right = CreateExpression(sqlJoinStatement.Right, out Type rightMappedType, joinOutputType);
         LambdaExpression left = CreateExpression(sqlJoinStatement.Left, out Type leftMappedType, joinOutputType);
@@ -373,20 +381,7 @@ public class ExpressionAdapter : IExpressionAdapter
                 break;
         }
 
-        //        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
-        IEnumerable<MethodInfo> joinMethodInfos =
-            typeof(System.Linq.Enumerable)
-                .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .ToList()
-                .Where(mi => mi.Name == "Join");
-
-        MethodInfo? joinMethodInfo =
-            joinMethodInfos
-                .FirstOrDefault(
-                    mi =>
-                        mi.IsGenericMethodDefinition
-                        && mi.GetParameters().Length == 5
-                        && mi.GetParameters()[4].ParameterType.GetGenericTypeDefinition() == typeof(Func<,,>));
+        MethodInfo? joinMethodInfo = GetIEnumerableJoinMethodInfo();
 
         Type typeIEnumerableOfTOuter = typeof(IEnumerable<>).MakeGenericType(rightMappedType);
         Type typeIEnumerableOfTInner = typeof(IEnumerable<>).MakeGenericType(leftMappedType);
@@ -428,6 +423,25 @@ public class ExpressionAdapter : IExpressionAdapter
             joinMethodCall, new ParameterExpression[] { });
         return l2;
 
+    }
+
+    private static MethodInfo? GetIEnumerableJoinMethodInfo()
+    {
+        //public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
+        IEnumerable<MethodInfo> joinMethodInfos =
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where(mi => mi.Name == "Join");
+
+        MethodInfo? joinMethodInfo =
+            joinMethodInfos
+                .FirstOrDefault(
+                    mi =>
+                        mi.IsGenericMethodDefinition
+                        && mi.GetParameters().Length == 5
+                        && mi.GetParameters()[4].ParameterType.GetGenericTypeDefinition() == typeof(Func<,,>));
+        return joinMethodInfo;
     }
 
     private IEnumerable<MemberBinding> GetMemberBindingsRecursive(Type outputType, Type inputType, SqlTableExpression sqlTableExpression, Expression parameterExpression)
@@ -492,21 +506,8 @@ public class ExpressionAdapter : IExpressionAdapter
         Type funcTakingCustomerReturningBool = typeof(Func<,>).MakeGenericType(mappedType, typeof(bool));
         LambdaExpression selector = Expression.Lambda(funcTakingCustomerReturningBool, Expression.Constant(true), selectorParam);
 
-        //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
-        IEnumerable<MethodInfo> whereMethodInfos =
-            typeof(System.Linq.Enumerable)
-                .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                .ToList()
-                .Where(mi => mi.Name == "Where");
-
-        MethodInfo? whereMethodInfo =
-            whereMethodInfos
-                .FirstOrDefault(
-                    mi =>
-                        mi.IsGenericMethodDefinition
-                        && mi.GetParameters().Length == 2
-                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
-
+        MethodInfo? whereMethodInfo = GetIEnumerableWhereMethodInfo();
+           
         // Creating an expression for the method call and specifying its parameter.
         MethodCallExpression whereMethodCall = Expression.Call(
             method: whereMethodInfo.MakeGenericMethod(new[] { mappedType }),
@@ -686,21 +687,7 @@ public class ExpressionAdapter : IExpressionAdapter
                                         propInfo.PropertyType,
                                         collection.Select(c => Expression.Constant(Convert.ChangeType(c, propInfo.PropertyType)))
                                     );
-                            // public static bool Any<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
-                            IEnumerable<MethodInfo> anyMethodInfos =
-                                typeof(System.Linq.Enumerable)
-                                    .GetMethods(BindingFlags.Public | BindingFlags.Static)
-                                    .ToList()
-                                    .Where(mi => mi.Name == "Any");
-
-                            MethodInfo? anyMethodInfo =
-                                anyMethodInfos
-                                    .FirstOrDefault(
-                                        mi =>
-                                            mi.IsGenericMethodDefinition
-                                            && mi.GetParameters().Length == 2
-                                            && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
-
+                            MethodInfo? anyMethodInfo = GetIEnumerableAnyMethodInfo();
                             LambdaExpression ll =
                                 Expression
                                     .Lambda(
@@ -708,7 +695,6 @@ public class ExpressionAdapter : IExpressionAdapter
                                             .MakeGenericType(propInfo.PropertyType, typeof(bool)),
                                         equalsExpression,
                                         collectionParameter);
-
                             Expression anyMethodCall =
                                 Expression.Call(
                                     null,
@@ -717,8 +703,8 @@ public class ExpressionAdapter : IExpressionAdapter
                                     c,
                                     ll
                                         });
-
                             return anyMethodCall;
+
                         case SqlInBooleanExpressionValue sqlScalarExpression: break;
 
                     }
@@ -727,6 +713,26 @@ public class ExpressionAdapter : IExpressionAdapter
         }
         return selectorExpression;
     }
+
+    private static MethodInfo? GetIEnumerableAnyMethodInfo()
+    {
+        // public static bool Any<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
+        IEnumerable<MethodInfo> anyMethodInfos =
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where(mi => mi.Name == "Any");
+
+        MethodInfo? anyMethodInfo =
+            anyMethodInfos
+                .FirstOrDefault(
+                    mi =>
+                        mi.IsGenericMethodDefinition
+                        && mi.GetParameters().Length == 2
+                        && mi.GetParameters()[1].ParameterType.GetGenericTypeDefinition() == typeof(Func<,>));
+        return anyMethodInfo;
+    }
+
     public LambdaExpression CreateWhereExpression(SqlWhereClause whereClause, Type elementType)
     {
         //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
