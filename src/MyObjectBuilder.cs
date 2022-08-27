@@ -4,9 +4,9 @@ using System.Reflection.Emit;
 namespace src;
 
 //  https://stackoverflow.com/questions/15641339/create-new-propertyinfo-object-on-the-fly
-public class MyObjectBuilder
+public class MyObjectBuilder : IMyObjectBuilder
 {
-    public static Type CompileResultType(string typeSignature, IEnumerable<Field> Fields)
+    public Type CompileResultType(string typeSignature, IEnumerable<Field> Fields)
     {
         TypeBuilder tb = GetTypeBuilder(typeSignature);
         ConstructorBuilder constructor = tb.DefineDefaultConstructor(MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
@@ -19,15 +19,15 @@ public class MyObjectBuilder
         return objectType;
     }
 
-    private static TypeBuilder GetTypeBuilder(string typeSignature)
+    private TypeBuilder GetTypeBuilder(string typeSignature)
     {
         var an = new System.Reflection.AssemblyName(typeSignature);
         AssemblyBuilder assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(an, AssemblyBuilderAccess.Run);
         ModuleBuilder moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
-        TypeBuilder tb = 
+        TypeBuilder tb =
             moduleBuilder
                 .DefineType(
-                    typeSignature, 
+                    typeSignature,
                     TypeAttributes.Public |
                     TypeAttributes.Class |
                     TypeAttributes.AutoClass |
@@ -36,32 +36,32 @@ public class MyObjectBuilder
                     TypeAttributes.AutoLayout,
                     null);
 
-        ConstructorInfo classCtorInfo = typeof(DynamicDataSetElementAttribute).GetConstructor( new Type[] {});
+        ConstructorInfo classCtorInfo = typeof(DynamicDataSetElementAttribute).GetConstructor(new Type[] { });
         CustomAttributeBuilder myCABuilder2 = new CustomAttributeBuilder(
                         classCtorInfo,
-                        new object[] {  });
+                        new object[] { });
         tb.SetCustomAttribute(myCABuilder2);
         return tb;
     }
 
-    private static void CreateProperty(TypeBuilder tb, string propertyName, Type propertyType)
+    private void CreateProperty(TypeBuilder tb, string propertyName, Type propertyType)
     {
         FieldBuilder fieldBuilder = tb.DefineField("_" + propertyName, propertyType, FieldAttributes.Private);
 
         PropertyBuilder propertyBuilder = tb.DefineProperty(propertyName, PropertyAttributes.HasDefault, propertyType, null);
-        
+
         Type[] ctorParams = new Type[] { };
         ConstructorInfo classCtorInfo = typeof(System.Runtime.Serialization.DataMemberAttribute).GetConstructor(ctorParams);
-        
+
         PropertyInfo? dataMemberNameProperty = typeof(System.Runtime.Serialization.DataMemberAttribute).GetProperty("Name");
         CustomAttributeBuilder myCABuilder2 = new CustomAttributeBuilder(
                         con: classCtorInfo,
-                        constructorArgs: new object[] {  },
-                        namedProperties: new [] { dataMemberNameProperty },
-                        propertyValues: new object[] { propertyName.Replace("_",".") } );
+                        constructorArgs: new object[] { },
+                        namedProperties: new[] { dataMemberNameProperty },
+                        propertyValues: new object[] { propertyName.Replace("_", ".") });
 
         propertyBuilder.SetCustomAttribute(myCABuilder2);
-        
+
         MethodBuilder getPropMthdBldr = tb.DefineMethod("get_" + propertyName, MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig, propertyType, Type.EmptyTypes);
         ILGenerator getIl = getPropMthdBldr.GetILGenerator();
 

@@ -3,91 +3,102 @@ using System.Reflection;
 
 namespace src;
 
-public class SqlFieldProvider {
-    private readonly TypeMapper _typeMapper;
+public class SqlFieldProvider : ISqlFieldProvider
+{
+    private readonly ITypeMapper _typeMapper;
 
-    public SqlFieldProvider(TypeMapper typeMapper)
+    public SqlFieldProvider(ITypeMapper typeMapper)
     {
         _typeMapper = typeMapper;
     }
 
-    public IEnumerable<Field> GetFields(SqlJoinTableExpression sqlJoinStatement) {
+    public IEnumerable<Field> GetFields(SqlJoinTableExpression sqlJoinStatement)
+    {
         List<Field> result = new List<Field>();
         result.AddRange(GetFields(sqlJoinStatement.Left));
         result.AddRange(GetFields(sqlJoinStatement.Right));
         return result;
     }
 
-    public IEnumerable<Field> GetFields(SqlTableExpression sqlTableExpression) {
+    public IEnumerable<Field> GetFields(SqlTableExpression sqlTableExpression)
+    {
         List<Field> result = new List<Field>();
         switch (sqlTableExpression)
         {
-            case SqlJoinTableExpression sqlJoinTableExpression: 
-            {
-                result.AddRange(GetFields(sqlJoinTableExpression));
-            }
-            break;
-            case SqlTableRefExpression sqlTableRefExpression: 
-            {
-                result.AddRange(GetFields(sqlTableRefExpression));
-            }
-            break;
+            case SqlJoinTableExpression sqlJoinTableExpression:
+                {
+                    result.AddRange(GetFields(sqlJoinTableExpression));
+                }
+                break;
+            case SqlTableRefExpression sqlTableRefExpression:
+                {
+                    result.AddRange(GetFields(sqlTableRefExpression));
+                }
+                break;
         }
         return result;
     }
 
-    IEnumerable<Field> GetFields(SqlTableRefExpression sqlTableRefExpression) {
+    IEnumerable<Field> GetFields(SqlTableRefExpression sqlTableRefExpression)
+    {
         List<Field> result = new List<Field>();
 
         Type? mappedType = _typeMapper.GetMappedType(sqlTableRefExpression.Sql);
         if (mappedType == null)
             return result;
 
-        Field f = new Field() { FieldName = sqlTableRefExpression.Sql.ToString().Replace(".","_"), FieldType = mappedType};
+        Field f = new Field() { FieldName = sqlTableRefExpression.Sql.ToString().Replace(".", "_"), FieldType = mappedType };
         result.Add(f);
         return result;
     }
 
-    IEnumerable<Field> GetFields(SqlSelectClause selectClause, Type inputType) {
+    IEnumerable<Field> GetFields(SqlSelectClause selectClause, Type inputType)
+    {
         List<Field> result = new List<Field>();
-        foreach (SqlSelectExpression sqlSelectExpression in selectClause.SelectExpressions) {
+        foreach (SqlSelectExpression sqlSelectExpression in selectClause.SelectExpressions)
+        {
 
-            switch (sqlSelectExpression) {
-                case SqlSelectScalarExpression sqlSelectScalarExpression :
-                {
-                    switch(sqlSelectScalarExpression.Expression) {
-                        case SqlScalarRefExpression sqlSelectScalarRefExpression: {
-                            SqlMultipartIdentifier m = sqlSelectScalarRefExpression.MultipartIdentifier;
+            switch (sqlSelectExpression)
+            {
+                case SqlSelectScalarExpression sqlSelectScalarExpression:
+                    {
+                        switch (sqlSelectScalarExpression.Expression)
+                        {
+                            case SqlScalarRefExpression sqlSelectScalarRefExpression:
+                                {
+                                    SqlMultipartIdentifier m = sqlSelectScalarRefExpression.MultipartIdentifier;
 
-                            switch (m.Count) {
-                                case 1: break;
-                                case 2: break;
-                                case 3: {
-                                    string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
-                                    string colName = m.Last().Sql;
-
-                                    Type mappedType = _typeMapper.GetMappedType(typeName);
-
-                                    PropertyInfo propInfo = mappedType.GetProperty(colName);
-                            
-                                    Field f = new Field() 
+                                    switch (m.Count)
                                     {
-                                        FieldName = m.ToString().Replace(".","_"),
-                                        FieldType = propInfo.PropertyType
-                                    };
-                                    result.Add(f);
+                                        case 1: break;
+                                        case 2: break;
+                                        case 3:
+                                            {
+                                                string typeName = $"{m.First().Sql}.{m.Skip(1).First().Sql}";
+                                                string colName = m.Last().Sql;
+
+                                                Type mappedType = _typeMapper.GetMappedType(typeName);
+
+                                                PropertyInfo propInfo = mappedType.GetProperty(colName);
+
+                                                Field f = new Field()
+                                                {
+                                                    FieldName = m.ToString().Replace(".", "_"),
+                                                    FieldType = propInfo.PropertyType
+                                                };
+                                                result.Add(f);
+                                                break;
+                                            }
+                                    }
+
+
+
                                     break;
                                 }
-                            }
-
-
-
-                            break;
                         }
-                    }
 
-                    break;
-                }
+                        break;
+                    }
             }
 
 

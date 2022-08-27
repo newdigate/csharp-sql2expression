@@ -1,6 +1,6 @@
 namespace src;
 
-public class CollectionMapper {
+public class CollectionMapper : ICollectionMapper {
     private readonly Dictionary<string, IEnumerable<object>> _map;
 
     public CollectionMapper(Dictionary<string, IEnumerable<object>> map)

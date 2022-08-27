@@ -16,7 +16,6 @@ public class UnitTest1
     private static readonly Brand[] _brands = new [] { new Brand() { Id = 1, Name = "Coke" }};
     #endregion
 
-    private readonly ExpressionAdapter _expressionAdapter;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
     private readonly Dictionary<string, IEnumerable<object>> _map = 
         new Dictionary<string, IEnumerable<object>>{
@@ -28,16 +27,17 @@ public class UnitTest1
     public UnitTest1() {
         TypeMapper typeMapper = new TypeMapper(_map);
 
-        _expressionAdapter = 
+       ExpressionAdapter expressionAdapter = 
             new ExpressionAdapter(
                 typeMapper, 
                 new CollectionMapper(_map), 
                 new SqlFieldProvider(typeMapper), 
-                new FieldMappingProvider(typeMapper, new UniqueNameProviderFactory()));
+                new FieldMappingProvider(typeMapper, new UniqueNameProviderFactory()),
+                new MyObjectBuilder() );
 
         _sqlSelectStatementExpressionAdapter = 
             new SqlSelectStatementExpressionAdapter(
-                _expressionAdapter);
+                expressionAdapter);
     }
 
     [Fact]
@@ -324,7 +324,6 @@ WHERE dbo.States.Name = 'MA'";
 
         Xunit.Assert.Equal(jsonResult, "[{\"Id\":1,\"Name\":\"Nic\"}]");
     }
-
 
     private IEnumerable<object> Evaluate (LambdaExpression expression){
         Delegate finalDelegate = expression.Compile();
