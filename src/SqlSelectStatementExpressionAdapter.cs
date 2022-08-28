@@ -17,7 +17,7 @@ public class SqlSelectStatementExpressionAdapter : ISqlSelectStatementExpression
         switch (selectStatement.SelectSpecification.QueryExpression)
         {
             case SqlQuerySpecification sqlQuerySpecification:
-                return _expressionAdapter.ProcessSelectStatement(sqlQuerySpecification, out Type? outputType);
+                return _expressionAdapter.ConvertSqlSelectQueryToLambda(sqlQuerySpecification, out Type? outputType);
         }
         return null;
     }
