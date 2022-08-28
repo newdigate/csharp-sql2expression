@@ -80,4 +80,34 @@ public class EmbeddedQueryTests
 
         Xunit.Assert.Equal(jsonResult, "[{\"Id\":1,\"Name\":\"Nic\"}]");
     }
+
+    [Fact]
+    public void TestWhereInTableExpressionStatement()
+    {
+        const string sql = "SELECT Id, Name FROM dbo.Customers WHERE Id in (SELECT Id from dbo.Customers)";
+        var parseResult = Parser.Parse(sql);
+
+        SqlSelectStatement? selectStatement =
+            parseResult.Script.Batches
+                .SelectMany( b => b.Statements)
+                .OfType<SqlSelectStatement>()
+                .Cast<SqlSelectStatement>()
+                .FirstOrDefault();
+
+        LambdaExpression? lambda = selectStatement != null?
+            _sqlSelectStatementExpressionAdapter
+                .ProcessSelectStatement(selectStatement) : null;
+
+        Xunit.Assert.NotNull(lambda);
+        string expressionString = lambda.ToString();
+        Xunit.Assert.Equal(
+            "() => value(tests.Customer[]).Where(c => new [] {1}.Any(z => (z == c.Id))).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name})",
+            expressionString);
+
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        string jsonResult = JsonConvert.SerializeObject(result);
+        WriteLine(jsonResult);  
+
+        Xunit.Assert.Equal(jsonResult, "[{\"Id\":1,\"Name\":\"Nic\"}]");
+    }
 }

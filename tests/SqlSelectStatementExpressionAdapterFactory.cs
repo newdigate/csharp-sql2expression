@@ -13,7 +13,8 @@ public class SqlSelectStatementExpressionAdapterFactory {
                 new SqlFieldProvider(typeMapper), 
                 new FieldMappingProvider(typeMapper, new UniqueNameProviderFactory()),
                 new MyObjectBuilder(),
-                new EnumerableMethodInfoProvider());
+                new EnumerableMethodInfoProvider(),
+                new LambdaExpressionEnumerableEvaluator());
 
         return 
             new SqlSelectStatementExpressionAdapter(

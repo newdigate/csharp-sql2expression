@@ -1,4 +1,5 @@
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
+using System.Collections;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -12,8 +13,9 @@ public class ExpressionAdapter : IExpressionAdapter
     private readonly IFieldMappingProvider _fieldMappingProvider;
     private readonly IMyObjectBuilder _myObjectBuilder;
     private readonly IEnumerableMethodInfoProvider _ienumerableMethodInfoProvider;
+    private readonly ILambdaExpressionEnumerableEvaluator _lambdaEvaluator;
 
-    public ExpressionAdapter(ITypeMapper typeMapper, ICollectionMapper collectionMapper, ISqlFieldProvider sqlFieldProvider, IFieldMappingProvider fieldMappingProvider, IMyObjectBuilder myObjectBuilder, IEnumerableMethodInfoProvider ienumerableMethodInfoProvider)
+    public ExpressionAdapter(ITypeMapper typeMapper, ICollectionMapper collectionMapper, ISqlFieldProvider sqlFieldProvider, IFieldMappingProvider fieldMappingProvider, IMyObjectBuilder myObjectBuilder, IEnumerableMethodInfoProvider ienumerableMethodInfoProvider, ILambdaExpressionEnumerableEvaluator lambdaEvaluator)
     {
         _typeMapper = typeMapper;
         _collectionMapper = collectionMapper;
@@ -21,6 +23,7 @@ public class ExpressionAdapter : IExpressionAdapter
         _fieldMappingProvider = fieldMappingProvider;
         _myObjectBuilder = myObjectBuilder;
         _ienumerableMethodInfoProvider = ienumerableMethodInfoProvider;
+        _lambdaEvaluator = lambdaEvaluator;
     }
 
     public LambdaExpression? CreateExpression(SqlTableExpression expression, out Type? elementType, Type? joinOutputType)
@@ -626,29 +629,61 @@ public class ExpressionAdapter : IExpressionAdapter
                                         break;
                                 }
                             }
-                            Expression c =
-                                Expression
-                                    .NewArrayInit(
-                                        propInfo.PropertyType,
-                                        collection.Select(c => Expression.Constant(Convert.ChangeType(c, propInfo.PropertyType)))
-                                    );
-                            MethodInfo? anyMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableAnyMethodInfo();
-                            LambdaExpression ll =
-                                Expression
-                                    .Lambda(
-                                        typeof(Func<,>)
-                                            .MakeGenericType(propInfo.PropertyType, typeof(bool)),
-                                        equalsExpression,
-                                        collectionParameter);
-                            Expression anyMethodCall =
-                                Expression.Call(
-                                    null,
-                                    anyMethodInfo.MakeGenericMethod(propInfo.PropertyType),
-                                    new Expression[] {
-                                    c,
-                                    ll
-                                        });
-                            return anyMethodCall;
+                            return CreateInStatementFromCollection(propInfo, collectionParameter, equalsExpression, collection);
+
+                        case SqlInBooleanExpressionQueryValue sqlInBooleanExpressionQueryValue:
+
+                            switch (sqlInBooleanExpressionQueryValue.Value) {
+                                case SqlQuerySpecification sqlQuerySpecification:
+                                    LambdaExpression? expression = 
+                                        ConvertSqlSelectQueryToLambda(sqlQuerySpecification, out elementType);
+                                    
+                                    ParameterExpression elementParameter = Expression.Parameter(elementType, "e");
+                                    Type memberAccessLambdaType = typeof (Func<,>).MakeGenericType(elementType, propInfo.PropertyType);
+                                    Expression memberAccessExpression = 
+                                        Expression.MakeMemberAccess(
+                                            elementParameter,
+                                            elementType.GetProperties().First()
+                                        );
+
+                                    Expression memberAccessLambda = 
+                                        Expression
+                                            .Lambda( 
+                                                memberAccessLambdaType,
+                                                memberAccessExpression,
+                                                elementParameter);
+
+                                    MethodInfo? selectMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableSelectMethodInfo();
+                                    MethodCallExpression selectMethodCall = 
+                                        Expression.Call(
+                                            method: selectMethodInfo.MakeGenericMethod(new[] { elementType, propInfo.PropertyType }),
+                                            instance: null,
+                                            arguments: new Expression[] {
+                                                expression.Body,
+                                                memberAccessLambda}
+                                        );
+                                    
+                                    Type typeFuncTakesNothingReturnsIEnumerableOfPropertyType =
+                                        typeof(Func<>)
+                                            .MakeGenericType(
+                                                typeof(IEnumerable<>)
+                                                    .MakeGenericType(propInfo.PropertyType) );
+
+                                    LambdaExpression lambda = 
+                                        Expression.Lambda(
+                                            typeFuncTakesNothingReturnsIEnumerableOfPropertyType,
+                                            selectMethodCall
+                                        );
+
+                                    IEnumerable? values = _lambdaEvaluator.Evaluate(lambda, propInfo.PropertyType);
+                                    
+                                    List<object> collection2 = new List<object>();
+                                    foreach (object value in values)
+                                        collection2.Add(Convert.ChangeType(value, propInfo.PropertyType));
+
+                                    return CreateInStatementFromCollection(propInfo, collectionParameter, equalsExpression, collection2);
+                            }
+                            break;
 
                         case SqlInBooleanExpressionValue sqlScalarExpression: break;
 
@@ -657,6 +692,33 @@ public class ExpressionAdapter : IExpressionAdapter
                 }
         }
         return selectorExpression;
+    }
+
+    private Expression CreateInStatementFromCollection(PropertyInfo? propInfo, ParameterExpression collectionParameter, Expression equalsExpression, List<object> collection)
+    {
+        Expression c =
+            Expression
+                .NewArrayInit(
+                    propInfo.PropertyType,
+                    collection.Select(c => Expression.Constant(Convert.ChangeType(c, propInfo.PropertyType)))
+                );
+        MethodInfo? anyMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableAnyMethodInfo();
+        LambdaExpression ll =
+            Expression
+                .Lambda(
+                    typeof(Func<,>)
+                        .MakeGenericType(propInfo.PropertyType, typeof(bool)),
+                    equalsExpression,
+                    collectionParameter);
+        Expression anyMethodCall =
+            Expression.Call(
+                null,
+                anyMethodInfo.MakeGenericMethod(propInfo.PropertyType),
+                new Expression[] {
+                                    c,
+                                    ll
+                    });
+        return anyMethodCall;
     }
 
     public LambdaExpression CreateWhereExpression(SqlWhereClause whereClause, Type elementType)
