@@ -101,7 +101,7 @@ public class EmbeddedQueryTests
         Xunit.Assert.NotNull(lambda);
         string expressionString = lambda.ToString();
         Xunit.Assert.Equal(
-            "() => value(tests.Customer[]).Where(c => new [] {1}.Any(z => (z == c.Id))).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name})",
+            "() => value(tests.Customer[]).Where(c => value(tests.Customer[]).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id}).Select(e => e.Id).Any(z => (z == c.Id))).Select(Param_1 => new Dynamic_Customer() {Id = Param_1.Id, Name = Param_1.Name})",
             expressionString);
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
@@ -109,5 +109,24 @@ public class EmbeddedQueryTests
         WriteLine(jsonResult);  
 
         Xunit.Assert.Equal(jsonResult, "[{\"Id\":1,\"Name\":\"Nic\"}]");
+        string csharp = 
+            expressionString
+                .Replace("value(tests.Customer[])", "_customers")
+                .Replace("new Dynamic_Customer()", "new");
+
+        WriteLine(csharp);
+        /*
+        Customer[] _customers = {};
+        var x = 
+            () => 
+                _customers
+                    .Where( 
+                        c => _customers
+                            .Select(Param_0 => new {Id = Param_0.Id})
+                            .Select(e => e.Id)
+                            .Any(z => (z == c.Id)))
+                    .Select(Param_1 => 
+                        new  {Id = Param_1.Id, Name = Param_1.Name});
+        */
     }
 }

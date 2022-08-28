@@ -675,13 +675,17 @@ public class ExpressionAdapter : IExpressionAdapter
                                             selectMethodCall
                                         );
 
-                                    IEnumerable? values = _lambdaEvaluator.Evaluate(lambda, propInfo.PropertyType);
+                                    bool needToEvaluateQueryableToEnumerable = false;
+                                    if (needToEvaluateQueryableToEnumerable) {
+                                        IEnumerable? values = _lambdaEvaluator.Evaluate(lambda, propInfo.PropertyType);
                                     
-                                    List<object> collection2 = new List<object>();
-                                    foreach (object value in values)
-                                        collection2.Add(Convert.ChangeType(value, propInfo.PropertyType));
+                                        List<object> collection2 = new List<object>();
+                                        foreach (object value in values)
+                                            collection2.Add(Convert.ChangeType(value, propInfo.PropertyType));
 
-                                    return CreateInStatementFromCollection(propInfo, collectionParameter, equalsExpression, collection2);
+                                        return CreateInStatementFromCollection(propInfo, collectionParameter, equalsExpression, collection2);
+                                    } else 
+                                        return CreateInStatementFromExpression(propInfo, collectionParameter, equalsExpression, lambda.Body);
                             }
                             break;
 
@@ -702,6 +706,11 @@ public class ExpressionAdapter : IExpressionAdapter
                     propInfo.PropertyType,
                     collection.Select(c => Expression.Constant(Convert.ChangeType(c, propInfo.PropertyType)))
                 );
+        return CreateInStatementFromExpression(propInfo, collectionParameter, equalsExpression, c);
+    }
+
+    private Expression CreateInStatementFromExpression(PropertyInfo? propInfo, ParameterExpression collectionParameter, Expression equalsExpression, Expression collection)
+    {
         MethodInfo? anyMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableAnyMethodInfo();
         LambdaExpression ll =
             Expression
@@ -715,7 +724,7 @@ public class ExpressionAdapter : IExpressionAdapter
                 null,
                 anyMethodInfo.MakeGenericMethod(propInfo.PropertyType),
                 new Expression[] {
-                                    c,
+                                    collection,
                                     ll
                     });
         return anyMethodCall;
