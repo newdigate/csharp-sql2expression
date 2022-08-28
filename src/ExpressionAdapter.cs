@@ -63,7 +63,7 @@ public class ExpressionAdapter : IExpressionAdapter
         return null;
     }
 
-    public LambdaExpression ConvertSqlSelectQueryToLambda(SqlQuerySpecification query, out Type? outputType)
+    public LambdaExpression ConvertSqlSelectQueryToLambda(SqlQuerySpecification query, out Type? outputType, bool isSqlInConditionBooleanQueryExpression=false)
     {
         LambdaExpression? fromExpression = CreateSourceExpression(query.FromClause, out Type fromExpressionReturnType, out string? tableRefExpressionAlias);
         if (fromExpression == null || fromExpressionReturnType == null)
@@ -76,8 +76,13 @@ public class ExpressionAdapter : IExpressionAdapter
             whereExpression = CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
             System.Diagnostics.Debug.WriteLine(whereExpression.ToString());
         }
-
-        LambdaExpression selectExpression = CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
+        LambdaExpression? selectExpression = null;
+        if (isSqlInConditionBooleanQueryExpression) {
+             selectExpression = CreateSelectScalarExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
+        } else 
+        {
+            selectExpression = CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
+        }
         System.Diagnostics.Debug.WriteLine(selectExpression.ToString());
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType(fromExpressionReturnType); // == IEnumerable<mappedType>
@@ -636,48 +641,14 @@ public class ExpressionAdapter : IExpressionAdapter
                             switch (sqlInBooleanExpressionQueryValue.Value) {
                                 case SqlQuerySpecification sqlQuerySpecification:
                                     LambdaExpression? expression = 
-                                        ConvertSqlSelectQueryToLambda(sqlQuerySpecification, out elementType);
+                                        ConvertSqlSelectQueryToLambda(sqlQuerySpecification, out elementType, true);
                                     
                                     ParameterExpression elementParameter = Expression.Parameter(elementType, "e");
                                     Type memberAccessLambdaType = typeof (Func<,>).MakeGenericType(elementType, propInfo.PropertyType);
-                                    Expression memberAccessExpression = 
-                                        Expression.MakeMemberAccess(
-                                            elementParameter,
-                                            elementType.GetProperties().First()
-                                        );
-
-                                    Expression memberAccessLambda = 
-                                        Expression
-                                            .Lambda( 
-                                                memberAccessLambdaType,
-                                                memberAccessExpression,
-                                                elementParameter);
-
-                                    MethodInfo? selectMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableSelectMethodInfo();
-                                    MethodCallExpression selectMethodCall = 
-                                        Expression.Call(
-                                            method: selectMethodInfo.MakeGenericMethod(new[] { elementType, propInfo.PropertyType }),
-                                            instance: null,
-                                            arguments: new Expression[] {
-                                                expression.Body,
-                                                memberAccessLambda}
-                                        );
-                                    
-                                    Type typeFuncTakesNothingReturnsIEnumerableOfPropertyType =
-                                        typeof(Func<>)
-                                            .MakeGenericType(
-                                                typeof(IEnumerable<>)
-                                                    .MakeGenericType(propInfo.PropertyType) );
-
-                                    LambdaExpression lambda = 
-                                        Expression.Lambda(
-                                            typeFuncTakesNothingReturnsIEnumerableOfPropertyType,
-                                            selectMethodCall
-                                        );
 
                                     bool needToEvaluateQueryableToEnumerable = false;
                                     if (needToEvaluateQueryableToEnumerable) {
-                                        IEnumerable? values = _lambdaEvaluator.Evaluate(lambda, propInfo.PropertyType);
+                                        IEnumerable? values = _lambdaEvaluator.Evaluate(expression, propInfo.PropertyType);
                                     
                                         List<object> collection2 = new List<object>();
                                         foreach (object value in values)
@@ -685,7 +656,7 @@ public class ExpressionAdapter : IExpressionAdapter
 
                                         return CreateInStatementFromCollection(propInfo, collectionParameter, equalsExpression, collection2);
                                     } else 
-                                        return CreateInStatementFromExpression(propInfo, collectionParameter, equalsExpression, lambda.Body);
+                                        return CreateInStatementFromExpression(propInfo, collectionParameter, equalsExpression, expression.Body);
                             }
                             break;
 
@@ -817,6 +788,65 @@ public class ExpressionAdapter : IExpressionAdapter
         LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, newDynamicType, transformerParam);
         return transformer;
     }
+
+    public LambdaExpression? CreateSelectScalarExpression(SqlSelectClause selectClause, Type inputType, string parameterName, out Type? outputType)
+    {
+        outputType = null;
+        Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType(inputType); // == IEnumerable<mappedType>
+
+        ParameterExpression paramOfTypeIEnumerableOfObject = Expression.Parameter(typeIEnumerableOfMappedType, "collection");
+
+        ParameterExpression transformerParam = Expression.Parameter(inputType, parameterName);
+
+        FieldMapping f = 
+            _fieldMappingProvider
+                .GetFieldMappings(selectClause, inputType)
+                .First();
+
+        Expression? memberAccess = null;
+        {
+            switch (f.InputFieldName.Count)
+            {
+                case 1:
+                    {
+                        PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
+                        outputType = inputProp.PropertyType;
+                        memberAccess =
+                            Expression.MakeMemberAccess(
+                                transformerParam,
+                                inputProp);
+                        break;
+                    }
+                case 2:
+                    {
+                        PropertyInfo? inputProp = inputType.GetProperty(f.InputFieldName.First().Replace(".", "_"));
+                        if (inputProp == null)
+                            return null;
+
+                        memberAccess =
+                            Expression.MakeMemberAccess(
+                                transformerParam,
+                                inputProp);
+
+                        inputProp = inputProp.PropertyType.GetProperty(f.InputFieldName.Last());
+                        if (inputProp == null)
+                            return null;
+
+                        outputType = inputProp.PropertyType;
+                        memberAccess = Expression.MakeMemberAccess(memberAccess, inputProp);
+                        break;
+                    }
+
+            }
+        }
+        if (memberAccess == null || outputType == null) 
+            return null;
+
+        Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType(inputType, outputType);
+        LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, memberAccess, transformerParam);
+        return transformer;
+    }
+
 
     public LambdaExpression? CreateSourceExpression(SqlFromClause fromClause, out Type? elementType, out string? tableRefExpressionAlias)
     {
