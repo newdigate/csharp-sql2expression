@@ -63,19 +63,15 @@ public class ExpressionAdapter : IExpressionAdapter
         return null;
     }
 
-    public LambdaExpression ConvertSqlSelectQueryToLambda(SqlQuerySpecification query, out Type? outputType, bool isSqlInConditionBooleanQueryExpression=false)
+    public LambdaExpression? ConvertSqlSelectQueryToLambda(SqlQuerySpecification query, out Type? outputType, bool isSqlInConditionBooleanQueryExpression=false)
     {
         LambdaExpression? fromExpression = CreateSourceExpression(query.FromClause, out Type fromExpressionReturnType, out string? tableRefExpressionAlias);
         if (fromExpression == null || fromExpressionReturnType == null)
             throw new ArgumentException($"Translation of from clause failed: '{query.FromClause.Sql}'");
-        System.Diagnostics.Debug.WriteLine(fromExpression.ToString());
 
         LambdaExpression? whereExpression = null;
         if (query.WhereClause != null)
-        {
             whereExpression = CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
-            System.Diagnostics.Debug.WriteLine(whereExpression.ToString());
-        }
 
         LambdaExpression? selectExpression = null;
         bool isAggregate = 
@@ -86,33 +82,7 @@ public class ExpressionAdapter : IExpressionAdapter
                 .Any();
 
         if (isAggregate) {
-            if (query.SelectClause.SelectExpressions.Count() == 1) {
-                SqlAggregateFunctionCallExpression? aggregateFn = 
-                    query.SelectClause.SelectExpressions
-                        .OfType<SqlSelectScalarExpression>()
-                        .Cast<SqlSelectScalarExpression>()
-                        .Select( agg => agg.Expression )
-                        .OfType<SqlAggregateFunctionCallExpression>()
-                        .FirstOrDefault();
-                
-                switch (aggregateFn.FunctionName.ToLower()) {
-                    case "count" : {
-                        outputType = typeof(int);
-                        MethodInfo countMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableCountMethodInfo();
-                        LambdaExpression countExpression = 
-                            Expression.Lambda(
-                                typeof(Func<>).MakeGenericType(outputType),
-                                Expression.Call(
-                                    instance: null,
-                                    method: countMethodInfo.MakeGenericMethod(typeof(object)),
-                                    fromExpression.Body)
-                            );
-
-                        selectExpression = countExpression;
-                        return countExpression;
-                    }
-                }
-            }
+            return  CreateAggregateSelectExpression(query, out outputType, fromExpression);
         }
 
         if (isSqlInConditionBooleanQueryExpression) {
@@ -162,6 +132,46 @@ public class ExpressionAdapter : IExpressionAdapter
                     selectMethodCall);
         return finalLambda;
     }
+
+    private LambdaExpression? CreateAggregateSelectExpression(SqlQuerySpecification query, out Type? outputType, LambdaExpression? fromExpression)
+    {
+        LambdaExpression? aggregateExpression = null;
+        outputType = typeof(int);
+
+        if (query.SelectClause.SelectExpressions.Count() == 1)
+        {
+            SqlAggregateFunctionCallExpression aggregateFn =
+                query.SelectClause.SelectExpressions
+                    .OfType<SqlSelectScalarExpression>()
+                    .Cast<SqlSelectScalarExpression>()
+                    .Select(agg => agg.Expression)
+                    .OfType<SqlAggregateFunctionCallExpression>()
+                    .First();
+
+            switch (aggregateFn.FunctionName.ToLower())
+            {
+                case "count":
+                    {
+                        outputType = typeof(int);
+                        MethodInfo countMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableCountMethodInfo();
+                        LambdaExpression countExpression =
+                            Expression.Lambda(
+                                typeof(Func<>).MakeGenericType(outputType),
+                                Expression.Call(
+                                    instance: null,
+                                    method: countMethodInfo.MakeGenericMethod(typeof(object)),
+                                    fromExpression.Body)
+                            );
+
+                        aggregateExpression = countExpression;
+                        break;
+                    }
+            }
+        }
+
+        return aggregateExpression;
+    }
+
     private string GetTypeNameRecursive(SqlTableExpression tableExpression)
     {
         switch (tableExpression)
