@@ -4,8 +4,9 @@ namespace src;
 
 public interface IEnumerableMethodInfoProvider
 {
-    MethodInfo? GetIEnumerableAnyMethodInfo();
-    MethodInfo? GetIEnumerableJoinMethodInfo();
-    MethodInfo? GetIEnumerableSelectMethodInfo();
-    MethodInfo? GetIEnumerableWhereMethodInfo();
+    MethodInfo GetIEnumerableAnyMethodInfo();
+    MethodInfo GetIEnumerableJoinMethodInfo();
+    MethodInfo GetIEnumerableSelectMethodInfo();
+    MethodInfo GetIEnumerableWhereMethodInfo();
+    MethodInfo GetIEnumerableCountMethodInfo();
 }

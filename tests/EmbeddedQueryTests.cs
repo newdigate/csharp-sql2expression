@@ -9,13 +9,13 @@ using src;
 
 public class EmbeddedQueryTests
 {
-    private readonly LambdaExpressionEnumerableEvaluator _lambdaEvaluator;
+    private readonly LambdaExpressionEvaluator _lambdaEvaluator;
 
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
 
     public EmbeddedQueryTests() {
         TestDataSet dataSet = new TestDataSet();
-        _lambdaEvaluator = new LambdaExpressionEnumerableEvaluator();
+        _lambdaEvaluator = new LambdaExpressionEvaluator();
         _sqlSelectStatementExpressionAdapter = 
             new SqlSelectStatementExpressionAdapterFactory()
                 .Create(dataSet.Map);
@@ -44,7 +44,7 @@ public class EmbeddedQueryTests
             "() => value(tests.Customer[]).Where(c => (c.StateId == 1)).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name}).Select(c => new Dynamic_Dynamic_Customer() {c_Name = c.Name, c_Id = c.Id})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -74,7 +74,7 @@ public class EmbeddedQueryTests
             "() => value(tests.Customer[]).Where(c => new [] {1, 2}.Any(z => (z == c.Id))).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -104,7 +104,7 @@ public class EmbeddedQueryTests
             "() => value(tests.Customer[]).Where(c => value(tests.Customer[]).Select(Param_0 => Param_0.Id).Any(z => (z == c.Id))).Select(Param_1 => new Dynamic_Customer() {Id = Param_1.Id, Name = Param_1.Name})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 

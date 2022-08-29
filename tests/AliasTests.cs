@@ -9,12 +9,12 @@ using src;
 
 public class AliasTests
 {
-    private readonly LambdaExpressionEnumerableEvaluator _lambdaEvaluator;
+    private readonly LambdaExpressionEvaluator _lambdaEvaluator;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
 
     public AliasTests() {
         TestDataSet dataSet = new TestDataSet();
-        _lambdaEvaluator = new LambdaExpressionEnumerableEvaluator();
+        _lambdaEvaluator = new LambdaExpressionEvaluator();
         _sqlSelectStatementExpressionAdapter = 
             new SqlSelectStatementExpressionAdapterFactory()
                 .Create(dataSet.Map);
@@ -43,7 +43,7 @@ public class AliasTests
             "() => value(tests.Customer[]).Where(c => (c.StateId == 1)).Select(Param_0 => new Dynamic_Customer() {CustomerId = Param_0.Id, CustomerName = Param_0.Name})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -73,7 +73,7 @@ public class AliasTests
             "() => value(tests.Customer[]).Where(c => (c.StateId == 1)).Select(c => new Dynamic_Customer() {CustomerId = c.Id, CustomerName = c.Name})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  

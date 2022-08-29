@@ -9,12 +9,12 @@ using src;
 
 public class JoinTests
 {
-    private readonly LambdaExpressionEnumerableEvaluator _lambdaEvaluator;
+    private readonly LambdaExpressionEvaluator _lambdaEvaluator;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
 
     public JoinTests() {
         TestDataSet dataSet = new TestDataSet();
-        _lambdaEvaluator = new LambdaExpressionEnumerableEvaluator();
+        _lambdaEvaluator = new LambdaExpressionEvaluator();
         _sqlSelectStatementExpressionAdapter = 
             new SqlSelectStatementExpressionAdapterFactory()
                 .Create(dataSet.Map);
@@ -47,7 +47,7 @@ WHERE dbo.Customers.StateId = 1";
             "() => value(tests.Category[]).Join(value(tests.Customer[]), right => right.Id, left => left.CategoryId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories() {dbo_Customers = left, dbo_Categories = right}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new Dynamic_Dynamic_dbo_Customers_dbo_Categories() {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})", 
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -82,7 +82,7 @@ WHERE dbo.States.Name = 'MA'";
             "() => value(tests.State[]).Join(value(tests.Category[]).Join(value(tests.Customer[]), right => right.Id, left => left.CategoryId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States() {dbo_Customers = left, dbo_Categories = right}), right => right.Id, left => left.dbo_Customers.StateId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States() {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = right}).Where(c => (c.dbo_States.Name == \"MA\")).Select(Param_0 => new Dynamic_Dynamic_dbo_Customers_dbo_Categories_dbo_States() {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name, dbo_States_Name = Param_0.dbo_States.Name})",            
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -118,7 +118,7 @@ WHERE dbo.States.Name = 'MA' and dbo.Brands.Name = 'Coke' ";
             "() => value(tests.Brand[]).Join(value(tests.State[]).Join(value(tests.Category[]).Join(value(tests.Customer[]), right => right.Id, left => left.CategoryId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers = left, dbo_Categories = right}), right => right.Id, left => left.dbo_Customers.StateId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = right}), right => right.Id, left => left.dbo_Customers.BrandId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = left.dbo_States, dbo_Brands = right}).Where(c => ((c.dbo_States.Name == \"MA\") And (c.dbo_Brands.Name == \"Coke\"))).Select(Param_0 => new Dynamic_Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name, dbo_States_Name = Param_0.dbo_States.Name, dbo_Brands_Name = Param_0.dbo_Brands.Name})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -155,7 +155,7 @@ WHERE dbo.States.Name = 'MA'";
             "() => value(tests.Brand[]).Join(value(tests.State[]).Join(value(tests.Category[]).Join(value(tests.Customer[]), right => right.Id, left => left.CategoryId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers = left, dbo_Categories = right}), right => right.Id, left => left.dbo_Customers.StateId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = right}), right => right.Id, left => left.dbo_Customers.BrandId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = left.dbo_States, dbo_Brands = right}).Where(c => (c.dbo_States.Name == \"MA\")).Select(Param_0 => new Dynamic_Dynamic_dbo_Customers_dbo_Categories_dbo_States_dbo_Brands() {CategoryId = Param_0.dbo_Customers.CategoryId, StateId = Param_0.dbo_Customers.StateId, BrandId = Param_0.dbo_Customers.BrandId, Id = Param_0.dbo_Customers.Id, Name = Param_0.dbo_Customers.Name, Id2 = Param_0.dbo_Categories.Id, Name2 = Param_0.dbo_Categories.Name, Id3 = Param_0.dbo_States.Id, Name3 = Param_0.dbo_States.Name, Id4 = Param_0.dbo_Brands.Id, Name4 = Param_0.dbo_Brands.Name})",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  

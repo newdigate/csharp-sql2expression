@@ -3,19 +3,20 @@ using System.Linq.Expressions;
 
 namespace src;
 
-public interface ILambdaExpressionEnumerableEvaluator
+public interface ILambdaExpressionEvaluator
 {
-    IEnumerable<object>? Evaluate(LambdaExpression expression);
+    T? Evaluate<T>(LambdaExpression expression);
     IEnumerable? Evaluate(LambdaExpression expression, Type elementType);
 }
 
-public class LambdaExpressionEnumerableEvaluator : ILambdaExpressionEnumerableEvaluator
+public class LambdaExpressionEvaluator : ILambdaExpressionEvaluator
 {
-    public IEnumerable<object>? Evaluate(LambdaExpression expression)
+
+    public T? Evaluate<T>(LambdaExpression expression)
     {
         Delegate? finalDelegate = expression.Compile();
-        if (finalDelegate == null) return null;
-        return (IEnumerable<object>?)finalDelegate.DynamicInvoke();
+        if (finalDelegate == null) return default;
+        return (T?)finalDelegate.DynamicInvoke();
     }
 
     public IEnumerable? Evaluate(LambdaExpression expression, Type elementType)

@@ -1,19 +1,17 @@
 using Microsoft.SqlServer.Management.SqlParser.Parser;
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
-using static System.Diagnostics.Debug;
 using Newtonsoft.Json;
 
 namespace tests;
 using src;
 
-public class BasicSelectTest
+public class SelectCountStarTests
 {
     private readonly LambdaExpressionEvaluator _lambdaEvaluator;
-
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
 
-    public BasicSelectTest() {
+    public SelectCountStarTests() {
         TestDataSet dataSet = new TestDataSet();
         _lambdaEvaluator = new LambdaExpressionEvaluator();
         _sqlSelectStatementExpressionAdapter = 
@@ -22,14 +20,14 @@ public class BasicSelectTest
     }
 
     [Fact]
-    public void TestSelectStatement()
+    public void TestCountStarStatement()
     {
-        const string sql = "SELECT Id, Name FROM dbo.Customers WHERE StateId = 1";
+        const string sql = "SELECT count(*) FROM dbo.Customers";
         var parseResult = Parser.Parse(sql);
 
         SqlSelectStatement? selectStatement =
             parseResult.Script.Batches
-                .SelectMany( b => b.Statements )
+                .SelectMany( b => b.Statements)
                 .OfType<SqlSelectStatement>()
                 .Cast<SqlSelectStatement>()
                 .FirstOrDefault();
@@ -37,17 +35,15 @@ public class BasicSelectTest
         LambdaExpression? lambda = selectStatement != null?
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
-        
+
         Xunit.Assert.NotNull(lambda);
         string expressionString = lambda.ToString();
         Xunit.Assert.Equal(
-            "() => value(tests.Customer[]).Where(c => (c.StateId == 1)).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name})",
+            "() => value(tests.Customer[]).Count()",
             expressionString);
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
+        int result = _lambdaEvaluator.Evaluate<int>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
-        WriteLine(jsonResult);  
-
-        Xunit.Assert.Equal("[{\"Id\":1,\"Name\":\"Nic\"}]", jsonResult);
+        Xunit.Assert.Equal(1,result);
     }
 }

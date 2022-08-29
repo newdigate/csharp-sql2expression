@@ -13,9 +13,9 @@ public class ExpressionAdapter : IExpressionAdapter
     private readonly IFieldMappingProvider _fieldMappingProvider;
     private readonly IMyObjectBuilder _myObjectBuilder;
     private readonly IEnumerableMethodInfoProvider _ienumerableMethodInfoProvider;
-    private readonly ILambdaExpressionEnumerableEvaluator _lambdaEvaluator;
+    private readonly ILambdaExpressionEvaluator _lambdaEvaluator;
 
-    public ExpressionAdapter(ITypeMapper typeMapper, ICollectionMapper collectionMapper, ISqlFieldProvider sqlFieldProvider, IFieldMappingProvider fieldMappingProvider, IMyObjectBuilder myObjectBuilder, IEnumerableMethodInfoProvider ienumerableMethodInfoProvider, ILambdaExpressionEnumerableEvaluator lambdaEvaluator)
+    public ExpressionAdapter(ITypeMapper typeMapper, ICollectionMapper collectionMapper, ISqlFieldProvider sqlFieldProvider, IFieldMappingProvider fieldMappingProvider, IMyObjectBuilder myObjectBuilder, IEnumerableMethodInfoProvider ienumerableMethodInfoProvider, ILambdaExpressionEvaluator lambdaEvaluator)
     {
         _typeMapper = typeMapper;
         _collectionMapper = collectionMapper;
@@ -76,7 +76,45 @@ public class ExpressionAdapter : IExpressionAdapter
             whereExpression = CreateWhereExpression(query.WhereClause, fromExpressionReturnType);
             System.Diagnostics.Debug.WriteLine(whereExpression.ToString());
         }
+
         LambdaExpression? selectExpression = null;
+        bool isAggregate = 
+            query.SelectClause.SelectExpressions
+                .OfType<SqlSelectScalarExpression>()
+                .Select( agg => agg.Expression )
+                .OfType<SqlAggregateFunctionCallExpression>()
+                .Any();
+
+        if (isAggregate) {
+            if (query.SelectClause.SelectExpressions.Count() == 1) {
+                SqlAggregateFunctionCallExpression? aggregateFn = 
+                    query.SelectClause.SelectExpressions
+                        .OfType<SqlSelectScalarExpression>()
+                        .Cast<SqlSelectScalarExpression>()
+                        .Select( agg => agg.Expression )
+                        .OfType<SqlAggregateFunctionCallExpression>()
+                        .FirstOrDefault();
+                
+                switch (aggregateFn.FunctionName.ToLower()) {
+                    case "count" : {
+                        outputType = typeof(int);
+                        MethodInfo countMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableCountMethodInfo();
+                        LambdaExpression countExpression = 
+                            Expression.Lambda(
+                                typeof(Func<>).MakeGenericType(outputType),
+                                Expression.Call(
+                                    instance: null,
+                                    method: countMethodInfo.MakeGenericMethod(typeof(object)),
+                                    fromExpression.Body)
+                            );
+
+                        selectExpression = countExpression;
+                        return countExpression;
+                    }
+                }
+            }
+        }
+
         if (isSqlInConditionBooleanQueryExpression) {
              selectExpression = CreateSelectScalarExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
         } else 

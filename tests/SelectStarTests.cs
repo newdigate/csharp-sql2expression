@@ -9,12 +9,12 @@ using src;
 
 public class SelectStarTests
 {
-    private readonly LambdaExpressionEnumerableEvaluator _lambdaEvaluator;
+    private readonly LambdaExpressionEvaluator _lambdaEvaluator;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
 
     public SelectStarTests() {
         TestDataSet dataSet = new TestDataSet();
-        _lambdaEvaluator = new LambdaExpressionEnumerableEvaluator();
+        _lambdaEvaluator = new LambdaExpressionEvaluator();
         _sqlSelectStatementExpressionAdapter = 
             new SqlSelectStatementExpressionAdapterFactory()
                 .Create(dataSet.Map);
@@ -43,7 +43,7 @@ public class SelectStarTests
             "() => value(tests.Customer[]).Where(c => (c.StateId == 1)).Select(Param_0 => new Dynamic_Customer() {StateId = Param_0.StateId, Id = Param_0.Id, Name = Param_0.Name, CategoryId = Param_0.CategoryId, BrandId = Param_0.BrandId})",
             expressionString);
 
-        IEnumerable<object> result = _lambdaEvaluator.Evaluate(lambda); 
+        IEnumerable<object> result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  

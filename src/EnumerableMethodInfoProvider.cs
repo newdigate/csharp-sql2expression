@@ -5,7 +5,7 @@ namespace src;
 public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
 {
 
-    public MethodInfo? GetIEnumerableSelectMethodInfo()
+    public MethodInfo GetIEnumerableSelectMethodInfo()
     {
         IEnumerable<MethodInfo> selectMethodInfos =
             typeof(System.Linq.Enumerable)
@@ -13,9 +13,9 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
                 .ToList()
                 .Where(mi => mi.Name == "Select");
 
-        MethodInfo? selectMethodInfo =
+        MethodInfo selectMethodInfo =
             selectMethodInfos
-                .FirstOrDefault(
+                .First(
                     mi =>
                         mi.IsGenericMethodDefinition
                         && mi.GetParameters().Length == 2
@@ -23,7 +23,7 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
         return selectMethodInfo;
     }
 
-    public MethodInfo? GetIEnumerableWhereMethodInfo()
+    public MethodInfo GetIEnumerableWhereMethodInfo()
     {
         //public static IEnumerable<TSource> Where<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
         IEnumerable<MethodInfo> whereMethodInfos =
@@ -32,9 +32,9 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
                 .ToList()
                 .Where(mi => mi.Name == "Where");
 
-        MethodInfo? whereMethodInfo =
+        MethodInfo whereMethodInfo =
             whereMethodInfos
-                .FirstOrDefault(
+                .First(
                     mi =>
                         mi.IsGenericMethodDefinition
                         && mi.GetParameters().Length == 2
@@ -42,7 +42,7 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
         return whereMethodInfo;
     }
 
-    public MethodInfo? GetIEnumerableJoinMethodInfo()
+    public MethodInfo GetIEnumerableJoinMethodInfo()
     {
         //public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
         IEnumerable<MethodInfo> joinMethodInfos =
@@ -61,7 +61,7 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
         return joinMethodInfo;
     }
 
-    public MethodInfo? GetIEnumerableAnyMethodInfo()
+    public MethodInfo GetIEnumerableAnyMethodInfo()
     {
         // public static bool Any<TSource>(this IEnumerable<TSource> source, Func<TSource, bool> predicate);
         IEnumerable<MethodInfo> anyMethodInfos =
@@ -70,9 +70,9 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
                 .ToList()
                 .Where(mi => mi.Name == "Any");
 
-        MethodInfo? anyMethodInfo =
+        MethodInfo anyMethodInfo =
             anyMethodInfos
-                .FirstOrDefault(
+                .First(
                     mi =>
                         mi.IsGenericMethodDefinition
                         && mi.GetParameters().Length == 2
@@ -80,4 +80,21 @@ public class EnumerableMethodInfoProvider : IEnumerableMethodInfoProvider
         return anyMethodInfo;
     }
 
+    public MethodInfo GetIEnumerableCountMethodInfo()
+    {
+        // public static int Count<TSource>(this IEnumerable<TSource> source);
+        IEnumerable<MethodInfo> anyMethodInfos =
+            typeof(System.Linq.Enumerable)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .ToList()
+                .Where(mi => mi.Name == "Count");
+
+        MethodInfo anyMethodInfo =
+            anyMethodInfos
+                .First(
+                    mi =>
+                        mi.IsGenericMethodDefinition
+                        && mi.GetParameters().Length == 1);
+        return anyMethodInfo;
+    }
 }
