@@ -6,13 +6,12 @@ using Newtonsoft.Json;
 namespace tests;
 using src;
 
-public class SelectCountStarTests
+public class WhereTests
 {
     private readonly LambdaExpressionEvaluator _lambdaEvaluator;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
     private readonly LambdaStringToCSharpConverter _csharpConverter; 
-
-    public SelectCountStarTests() {
+    public WhereTests() {
         TestDataSet dataSet = new TestDataSet();
         _lambdaEvaluator = new LambdaExpressionEvaluator();
         SqlSelectStatementExpressionAdapterFactory factory =  new SqlSelectStatementExpressionAdapterFactory();
@@ -23,12 +22,12 @@ public class SelectCountStarTests
     }
 
     [Fact]
-    public void TestCountStarStatement()
+    public void TestWhereAndStatement()
     {
-        const string sql = "SELECT count(*) FROM dbo.Customers";
-        const string expected =  "_customers.Count()";
-        var parseResult = Parser.Parse(sql);
-
+        const string sql = "SELECT * FROM dbo.Customers where Id = 1 and Name = 'Nic'";
+        const string expected = "_customers.Where(c => ((c.Id == 1) And (c.Name == \"Nic\")))";
+        
+        ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
             parseResult.Script.Batches
                 .SelectMany( b => b.Statements)
@@ -43,8 +42,8 @@ public class SelectCountStarTests
         Xunit.Assert.NotNull(lambda);
         Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
-        int result = _lambdaEvaluator.Evaluate<int>(lambda); 
+        IEnumerable<Customer>? result = _lambdaEvaluator.Evaluate<IEnumerable<Customer>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
-        Xunit.Assert.Equal(1,result);
+        Xunit.Assert.Equal(1, result?.Count());
     }
 }

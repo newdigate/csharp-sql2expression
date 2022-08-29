@@ -10,23 +10,26 @@ using src;
 public class EmbeddedQueryTests
 {
     private readonly LambdaExpressionEvaluator _lambdaEvaluator;
-
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
+    private readonly LambdaStringToCSharpConverter _csharpConverter; 
 
     public EmbeddedQueryTests() {
         TestDataSet dataSet = new TestDataSet();
         _lambdaEvaluator = new LambdaExpressionEvaluator();
+        SqlSelectStatementExpressionAdapterFactory factory =  new SqlSelectStatementExpressionAdapterFactory();
         _sqlSelectStatementExpressionAdapter = 
-            new SqlSelectStatementExpressionAdapterFactory()
+            factory
                 .Create(dataSet.Map);
+        _csharpConverter = factory.CreateLambdaExpressionConverter(dataSet.Map, dataSet.InstanceMap);
     }
 
     [Fact]
     public void TestEmbeddedSelectStatement()
     {
         const string sql = "SELECT c.Name, c.Id FROM (SELECT Id, Name FROM dbo.Customers WHERE StateId = 1) c";
-        var parseResult = Parser.Parse(sql);
-
+        const string expected = "_customers.Where(c => (c.StateId == 1)).Select(Param_0 => new {Id = Param_0.Id, Name = Param_0.Name}).Select(c => new {c_Name = c.Name, c_Id = c.Id})";
+        
+        ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
             parseResult.Script.Batches
                 .SelectMany( b => b.Statements)
@@ -39,10 +42,7 @@ public class EmbeddedQueryTests
                 .ProcessSelectStatement(selectStatement) : null;
 
         Xunit.Assert.NotNull(lambda);
-        string expressionString = lambda.ToString();
-        Xunit.Assert.Equal(
-            "() => value(tests.Customer[]).Where(c => (c.StateId == 1)).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name}).Select(c => new Dynamic_Dynamic_Customer() {c_Name = c.Name, c_Id = c.Id})",
-            expressionString);
+        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
@@ -55,8 +55,9 @@ public class EmbeddedQueryTests
     public void TestWhereInScalarSelectStatement()
     {
         const string sql = "SELECT Id, Name FROM dbo.Customers WHERE Id in (1, 2)";
-        var parseResult = Parser.Parse(sql);
-
+        const string expected = "_customers.Where(c => new [] {1, 2}.Any(z => (z == c.Id))).Select(Param_0 => new {Id = Param_0.Id, Name = Param_0.Name})";
+        
+        ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
             parseResult.Script.Batches
                 .SelectMany( b => b.Statements)
@@ -69,10 +70,7 @@ public class EmbeddedQueryTests
                 .ProcessSelectStatement(selectStatement) : null;
 
         Xunit.Assert.NotNull(lambda);
-        string expressionString = lambda.ToString();
-        Xunit.Assert.Equal(
-            "() => value(tests.Customer[]).Where(c => new [] {1, 2}.Any(z => (z == c.Id))).Select(Param_0 => new Dynamic_Customer() {Id = Param_0.Id, Name = Param_0.Name})",
-            expressionString);
+        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);

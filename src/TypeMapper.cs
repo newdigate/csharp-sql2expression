@@ -7,6 +7,12 @@ public class TypeMapper : ITypeMapper  {
     {
         _map = map;
     }
+
+    public IEnumerable<string> GetKeys()
+    {
+        return _map.Keys;
+    }
+
     public Type? GetMappedType(string key) {
         if (_map.ContainsKey(key)) {
             return _map[key].GetType().GetElementType();

@@ -88,7 +88,15 @@ public class ExpressionAdapter : IExpressionAdapter
              selectExpression = CreateSelectScalarExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
         } else 
         {
-            selectExpression = CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
+            bool isJustSqlSelctStarExpression = 
+                query.SelectClause.SelectExpressions.Count() == 1 && 
+                query.SelectClause.SelectExpressions.OfType<SqlSelectStarExpression>().Count() == 1;
+            bool isDynamicOutputType = fromExpressionReturnType.GetCustomAttribute<DynamicDataSetElementAttribute>() != null;
+            if (isJustSqlSelctStarExpression && !isDynamicOutputType) {
+                selectExpression = null;
+                outputType = fromExpressionReturnType;
+            } else 
+                selectExpression = CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
         }
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType(fromExpressionReturnType); // == IEnumerable<mappedType>
@@ -108,6 +116,19 @@ public class ExpressionAdapter : IExpressionAdapter
                     whereExpression}
             );
         }
+        
+        Type typeIEnumerableOfTOutputType = typeof(IEnumerable<>).MakeGenericType(outputType); // == IEnumerable<mappedType>
+        Type typeFuncTakesNothingReturnsIEnumerableOfTOutputType =
+            typeof(Func<>)
+                .MakeGenericType(typeIEnumerableOfTOutputType);
+
+        if (selectExpression == null) {
+            return
+                Expression
+                    .Lambda(
+                        typeFuncTakesNothingReturnsIEnumerableOfTOutputType,
+                        whereMethodCall??fromExpression.Body);
+        }
 
         MethodInfo? selectMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableSelectMethodInfo();
         MethodCallExpression selectMethodCall = Expression.Call(
@@ -117,11 +138,6 @@ public class ExpressionAdapter : IExpressionAdapter
                 whereMethodCall??fromExpression.Body,
                 selectExpression}
         );
-
-        Type typeIEnumerableOfTOutputType = typeof(IEnumerable<>).MakeGenericType(outputType); // == IEnumerable<mappedType>
-        Type typeFuncTakesNothingReturnsIEnumerableOfTOutputType =
-            typeof(Func<>)
-                .MakeGenericType(typeIEnumerableOfTOutputType);
 
         LambdaExpression finalLambda =
             Expression
@@ -775,7 +791,6 @@ public class ExpressionAdapter : IExpressionAdapter
 
         ParameterExpression transformerParam = Expression.Parameter(inputType, parameterName);
         Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType(inputType, dynamicType);
-
 
         List<MemberBinding> bindings = new List<MemberBinding>();
         foreach (FieldMapping f in fields)

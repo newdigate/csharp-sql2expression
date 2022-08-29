@@ -11,4 +11,12 @@ public class TestDataSet {
             { "dbo.States", _states},
             { "dbo.Brands", _brands},
             { "dbo.Categories", _categories}};
+            
+    public readonly Dictionary<Type, string> InstanceMap = 
+        new Dictionary<Type, string>{
+            {   typeof(Customer),   nameof(_customers)},
+            {   typeof(State),      nameof(_states)},
+            {   typeof(Brand),      nameof(_brands)},
+            {   typeof(Category),   nameof(_categories)}
+        };    
 }
