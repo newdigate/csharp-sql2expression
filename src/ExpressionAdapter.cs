@@ -84,14 +84,12 @@ public class ExpressionAdapter : IExpressionAdapter
         if (isAggregate) {
             return  CreateAggregateSelectExpression(query, out outputType, fromExpression);
         }
-
-        if (isSqlInConditionBooleanQueryExpression) {
+        else if (isSqlInConditionBooleanQueryExpression) {
              selectExpression = CreateSelectScalarExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
         } else 
         {
             selectExpression = CreateSelectExpression(query.SelectClause, fromExpressionReturnType, tableRefExpressionAlias, out outputType);
         }
-        System.Diagnostics.Debug.WriteLine(selectExpression.ToString());
 
         Type typeIEnumerableOfMappedType = typeof(IEnumerable<>).MakeGenericType(fromExpressionReturnType); // == IEnumerable<mappedType>
         ParameterExpression selectorParam = Expression.Parameter(fromExpressionReturnType, "c");
