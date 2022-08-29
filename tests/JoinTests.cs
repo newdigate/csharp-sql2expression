@@ -136,7 +136,6 @@ INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA'";
-
         const string expected = "_brands.Join(_states.Join(_categories.Join(_customers, right => right.Id, left => left.CategoryId, (right, left) => new {dbo_Customers = left, dbo_Categories = right}), right => right.Id, left => left.dbo_Customers.StateId, (right, left) => new {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = right}), right => right.Id, left => left.dbo_Customers.BrandId, (right, left) => new {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = left.dbo_States, dbo_Brands = right}).Where(c => (c.dbo_States.Name == \"MA\")).Select(Param_0 => new {CategoryId = Param_0.dbo_Customers.CategoryId, StateId = Param_0.dbo_Customers.StateId, BrandId = Param_0.dbo_Customers.BrandId, Id = Param_0.dbo_Customers.Id, Name = Param_0.dbo_Customers.Name, Id2 = Param_0.dbo_Categories.Id, Name2 = Param_0.dbo_Categories.Name, Id3 = Param_0.dbo_States.Id, Name3 = Param_0.dbo_States.Name, Id4 = Param_0.dbo_Brands.Id, Name4 = Param_0.dbo_Brands.Name})";
 
         ParseResult? parseResult = Parser.Parse(sql);

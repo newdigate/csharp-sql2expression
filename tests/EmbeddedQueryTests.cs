@@ -83,10 +83,11 @@ public class EmbeddedQueryTests
     public void TestWhereInTableExpressionStatement()
     {
         const string sql = "SELECT Id, Name FROM dbo.Customers WHERE Id in (SELECT Id from dbo.Customers)";
-        var parseResult = Parser.Parse(sql);
+        const string expected = "_customers.Where(c => _customers.Select(Param_0 => Param_0.Id).Any(z => (z == c.Id))).Select(Param_1 => new {Id = Param_1.Id, Name = Param_1.Name})";
 
+        ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
-            parseResult.Script.Batches
+            parseResult?.Script.Batches
                 .SelectMany( b => b.Statements)
                 .OfType<SqlSelectStatement>()
                 .Cast<SqlSelectStatement>()
@@ -97,34 +98,24 @@ public class EmbeddedQueryTests
                 .ProcessSelectStatement(selectStatement) : null;
 
         Xunit.Assert.NotNull(lambda);
-        string expressionString = lambda.ToString();
-        Xunit.Assert.Equal(
-            "() => value(tests.Customer[]).Where(c => value(tests.Customer[]).Select(Param_0 => Param_0.Id).Any(z => (z == c.Id))).Select(Param_1 => new Dynamic_Customer() {Id = Param_1.Id, Name = Param_1.Name})",
-            expressionString);
+        string csharp = _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString());
+        WriteLine(csharp);
+        Xunit.Assert.Equal(expected, csharp);
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
-        Xunit.Assert.Equal(jsonResult, "[{\"Id\":1,\"Name\":\"Nic\"}]");
-        string csharp = 
-            expressionString
-                .Replace("value(tests.Customer[])", "_customers")
-                .Replace("new Dynamic_Customer()", "new");
-
-        WriteLine(csharp);
+        Xunit.Assert.Equal("[{\"Id\":1,\"Name\":\"Nic\"}]", jsonResult);
         /*
-        Customer[] _customers = {};
-        var x = 
-            () => 
-                _customers
-                    .Where( 
-                        c => 
-                            _customers
-                                .Select(Param_0 => Param_0.Id)
-                                .Any(z => (z == c.Id)))
-                    .Select(Param_1 => 
-                        new {Id = Param_1.Id, Name = Param_1.Name});
+            _customers
+                .Where( 
+                    c => 
+                        _customers
+                            .Select(Param_0 => Param_0.Id)
+                            .Any(z => (z == c.Id)))
+                .Select(Param_1 => 
+                    new {Id = Param_1.Id, Name = Param_1.Name});
         */
     }
 }
