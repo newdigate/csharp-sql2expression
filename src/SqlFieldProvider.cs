@@ -16,7 +16,7 @@ public class SqlFieldProvider : ISqlFieldProvider
     {
         List<Field> result = new List<Field>();
         result.AddRange(GetFields(sqlJoinStatement.Left));
-        result.AddRange(GetFields(sqlJoinStatement.Right));
+        result.AddRange(GetFields(sqlJoinStatement.Right)); 
         return result;
     }
 

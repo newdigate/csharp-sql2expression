@@ -9,16 +9,17 @@ public class SqlSelectStatementExpressionAdapterFactory {
     }
     public SqlSelectStatementExpressionAdapter Create(Dictionary<string, IEnumerable<object>> _map) {
         TypeMapper typeMapper = new TypeMapper(_map);
-
+        IUniqueNameProviderFactory uniqueNameProviderFactory = new UniqueNameProviderFactory();
         ExpressionAdapter expressionAdapter = 
             new ExpressionAdapter(
                 typeMapper, 
                 new CollectionMapper(_map), 
                 new SqlFieldProvider(typeMapper), 
-                new FieldMappingProvider(typeMapper, new UniqueNameProviderFactory()),
+                new FieldMappingProvider(typeMapper, uniqueNameProviderFactory),
                 new MyObjectBuilder(),
                 new EnumerableMethodInfoProvider(),
-                new LambdaExpressionEvaluator());
+                new LambdaExpressionEvaluator(),
+                uniqueNameProviderFactory);
 
         return 
             new SqlSelectStatementExpressionAdapter(

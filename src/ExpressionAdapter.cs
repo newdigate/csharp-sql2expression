@@ -14,8 +14,9 @@ public class ExpressionAdapter : IExpressionAdapter
     private readonly IMyObjectBuilder _myObjectBuilder;
     private readonly IEnumerableMethodInfoProvider _ienumerableMethodInfoProvider;
     private readonly ILambdaExpressionEvaluator _lambdaEvaluator;
+    private readonly IUniqueNameProviderFactory _uniqueNameProviderFactory;
 
-    public ExpressionAdapter(ITypeMapper typeMapper, ICollectionMapper collectionMapper, ISqlFieldProvider sqlFieldProvider, IFieldMappingProvider fieldMappingProvider, IMyObjectBuilder myObjectBuilder, IEnumerableMethodInfoProvider ienumerableMethodInfoProvider, ILambdaExpressionEvaluator lambdaEvaluator)
+    public ExpressionAdapter(ITypeMapper typeMapper, ICollectionMapper collectionMapper, ISqlFieldProvider sqlFieldProvider, IFieldMappingProvider fieldMappingProvider, IMyObjectBuilder myObjectBuilder, IEnumerableMethodInfoProvider ienumerableMethodInfoProvider, ILambdaExpressionEvaluator lambdaEvaluator, IUniqueNameProviderFactory uniqueNameProviderFactory)
     {
         _typeMapper = typeMapper;
         _collectionMapper = collectionMapper;
@@ -24,6 +25,7 @@ public class ExpressionAdapter : IExpressionAdapter
         _myObjectBuilder = myObjectBuilder;
         _ienumerableMethodInfoProvider = ienumerableMethodInfoProvider;
         _lambdaEvaluator = lambdaEvaluator;
+        _uniqueNameProviderFactory = uniqueNameProviderFactory;
     }
 
     public LambdaExpression? CreateExpression(SqlTableExpression expression, out Type? elementType, Type? joinOutputType)
@@ -35,13 +37,21 @@ public class ExpressionAdapter : IExpressionAdapter
 
                 if (joinOutputType == null)
                 {
-                    IEnumerable<Field> fields = _sqlFieldProvider.GetFields(sqlJoinStatement);
 
                     string leftName = GetTypeNameRecursive(sqlJoinStatement.Left);
                     string rightName = GetTypeNameRecursive(sqlJoinStatement.Right);
-
-                    string dynamicTypeName = $"Dynamic_{leftName.Replace(".", "_")}_{rightName.Replace(".", "_")}";
-                    joinOutputType = _myObjectBuilder.CompileResultType(dynamicTypeName, fields);
+                    string dynamicTypeName = $"{sqlJoinStatement.JoinOperator}_{leftName.Replace(".", "_")}_{rightName.Replace(".", "_")}";
+                    switch (sqlJoinStatement.JoinOperator) {
+                        case SqlJoinOperatorType.InnerJoin: 
+                            IEnumerable<Field> fields = _sqlFieldProvider.GetFields(sqlJoinStatement);
+                            joinOutputType = _myObjectBuilder.CompileResultType(dynamicTypeName, fields);
+                            break;
+                        case SqlJoinOperatorType.LeftOuterJoin: 
+                            IEnumerable<Field> leftFields = _sqlFieldProvider.GetFields(sqlJoinStatement.Left);
+                            IEnumerable<Field> rightFields = _sqlFieldProvider.GetFields(sqlJoinStatement.Right);
+                            joinOutputType = _myObjectBuilder.CompileResultType(dynamicTypeName, leftFields, rightFields, leftName, rightName);
+                            break;
+                    }
                 }
 
                 return CreateJoinExpression(sqlJoinStatement, joinOutputType, "o", "i", sqlJoinStatement.OnClause, out elementType);
@@ -198,78 +208,80 @@ public class ExpressionAdapter : IExpressionAdapter
     }
 
     private void CreateJoinConditionsExpression(
-        SqlScalarRefExpression innerSqlScalarRefExpression,
+        SqlScalarRefExpression sqlScalarRefExpression,
         Type leftMappedType,
         Type rightMappedType,
         ParameterExpression innerParameterExpression,
-        ParameterExpression rightParameterExpression,
-        out Type? leftKeyType,
-        out Type? rightKeyType,
-        out Expression? leftExpression,
-        out Expression? rightExpression)
+        ParameterExpression outerParameterExpression,
+        out Type? innerKeyType,
+        out Type? outerKeyType,
+        out Expression? innerExpression,
+        out Expression? outerExpression)
     {
-        leftExpression = null;
-        rightExpression = null;
-        leftKeyType = null;
-        rightKeyType = null;
+        innerExpression = null;
+        outerExpression = null;
+
+        innerKeyType = null;
+        outerKeyType = null;
 
         Expression innerParameter = innerParameterExpression;
-        Expression rightParameter = rightParameterExpression;
+        Expression outerParameter = outerParameterExpression;
 
-        SqlMultipartIdentifier leftsqlMultipartIdentifier = innerSqlScalarRefExpression.MultipartIdentifier;
-        string lefttableName = leftsqlMultipartIdentifier.Children.Last().Sql;
+        SqlMultipartIdentifier innersqlMultipartIdentifier = sqlScalarRefExpression.MultipartIdentifier;
+        string lefttableName = innersqlMultipartIdentifier.Children.Last().Sql;
 
-        PropertyInfo? leftKeyProperty = null;
-        leftKeyType = null;
+        PropertyInfo? innerKeyProperty = null;
+        innerKeyType = null;
+        PropertyInfo? outerKeyProperty = null;
 
         bool conditionLHSRefersToInnerTable = true;
 
-        switch (leftsqlMultipartIdentifier.Count)
+        switch (innersqlMultipartIdentifier.Count)
         {
             case 1:
                 {
-                    string propertyName = $"{leftsqlMultipartIdentifier.First().Sql}";
-                    leftKeyProperty = leftMappedType.GetProperty(propertyName);
-                    leftKeyType = leftKeyProperty.PropertyType;
-                    if (leftKeyProperty != null)
+                    string propertyName = $"{innersqlMultipartIdentifier.First().Sql}";
+                    innerKeyProperty = leftMappedType.GetProperty(propertyName);
+                    innerKeyType = innerKeyProperty.PropertyType;
+                    if (innerKeyProperty != null)
                     {
                         conditionLHSRefersToInnerTable = true;
                     }
                     else
                     {
-                        leftKeyProperty = rightMappedType.GetProperty(propertyName);
-                        conditionLHSRefersToInnerTable = !(leftKeyProperty == null);
+                        innerKeyProperty = rightMappedType.GetProperty(propertyName);
+                        conditionLHSRefersToInnerTable = !(innerKeyProperty == null);
                     }
                     break;
                 }
             case 3:
                 {
-                    string tableName = $"{leftsqlMultipartIdentifier.First().Sql}.{leftsqlMultipartIdentifier.Skip(1).First().Sql}";
-                    string colName = leftsqlMultipartIdentifier.Last().Sql;
+                    string tableName = $"{innersqlMultipartIdentifier.First().Sql}.{innersqlMultipartIdentifier.Skip(1).First().Sql}";
+                    string colName = innersqlMultipartIdentifier.Last().Sql;
                     string tablePropName = tableName.Replace(".", "_");
                     Type mappedType = _typeMapper.GetMappedType(tableName);
                     if (mappedType == leftMappedType)
                     {
-                        leftKeyProperty = leftMappedType.GetProperty(colName);
-                        if (leftKeyProperty != null)
+                        innerKeyProperty = leftMappedType.GetProperty(colName);
+                        if (innerKeyProperty != null)
                         {
-                            leftKeyType = leftKeyProperty.PropertyType;
+                            innerKeyType = innerKeyProperty.PropertyType;
                         }
 
                     }
                     else if (mappedType == rightMappedType)
                     {
-                        PropertyInfo? rightKeyProperty = rightMappedType.GetProperty(colName);
-                        if (rightKeyProperty != null)
+                        outerKeyProperty = rightMappedType.GetProperty(colName);
+                        if (outerKeyProperty != null)
                         {
-                            rightKeyType = rightKeyProperty.PropertyType;
+                            outerKeyType = outerKeyProperty.PropertyType;
                         }
                         else
                         {
                             PropertyInfo? joinTableProperty = rightMappedType.GetProperty(tablePropName);
                             if (joinTableProperty != null)
                             {
-                                rightKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
+                                outerKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
                             }
                             else
                             {
@@ -279,8 +291,8 @@ public class ExpressionAdapter : IExpressionAdapter
 
                             if (joinTableProperty != null)
                             {
-                                rightKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
-                                rightKeyType = rightKeyProperty.PropertyType;
+                                outerKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
+                                outerKeyType = outerKeyProperty.PropertyType;
                             }
                         }
                     }
@@ -290,7 +302,7 @@ public class ExpressionAdapter : IExpressionAdapter
                         PropertyInfo? joinTableProperty = leftMappedType.GetProperty(tablePropName);
                         if (joinTableProperty != null)
                         {
-                            leftKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
+                            innerKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
                             innerParameter = Expression.MakeMemberAccess(innerParameter, joinTableProperty);
                         }
                         else
@@ -298,9 +310,9 @@ public class ExpressionAdapter : IExpressionAdapter
                             joinTableProperty = rightMappedType.GetProperty(tablePropName);
                             if (joinTableProperty != null)
                             {
-                                leftKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
-                                leftKeyType = leftKeyProperty.PropertyType;
-                                rightParameter = Expression.MakeMemberAccess(rightParameter, joinTableProperty);
+                                innerKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
+                                innerKeyType = innerKeyProperty.PropertyType;
+                                outerParameter = Expression.MakeMemberAccess(outerParameter, joinTableProperty);
                                 // Condition sides are switched?
                             }
                         }
@@ -308,32 +320,62 @@ public class ExpressionAdapter : IExpressionAdapter
                     break;
                 }
         }
-        if (leftKeyProperty != null)
+        if (innerKeyProperty != null)
         {
-
-            leftKeyType = leftKeyProperty.PropertyType;
-            MemberExpression innerMemberAccess = Expression.MakeMemberAccess(innerParameter, leftKeyProperty);
-            leftExpression = Expression.Lambda(innerMemberAccess, innerParameterExpression);
-        }
-        else
+            innerKeyType = innerKeyProperty.PropertyType;
+            ParameterExpression r2Parameter = Expression.Parameter(leftMappedType, "ll");
+            MemberExpression innerMemberAccess = Expression.MakeMemberAccess(r2Parameter, innerKeyProperty);
+            innerExpression = Expression.Lambda(innerMemberAccess, r2Parameter);
+        } else if (outerKeyProperty != null) {
+            outerKeyType = outerKeyProperty.PropertyType;
+            ParameterExpression r2Parameter = Expression.Parameter(rightMappedType, "rr");
+            MemberExpression outerMemberAccess = Expression.MakeMemberAccess(r2Parameter, outerKeyProperty);
+            outerExpression = Expression.Lambda(outerMemberAccess, r2Parameter);
+        } else 
         {
-            PropertyInfo? rightKeyProperty = rightMappedType.GetProperty(lefttableName);
-            if (rightKeyProperty != null)
+            outerKeyProperty = rightMappedType.GetProperty(lefttableName);
+            if (outerKeyProperty != null)
             {
-                rightKeyType = rightKeyProperty.PropertyType;
-                MemberExpression innerMemberAccess = Expression.MakeMemberAccess(rightParameter, rightKeyProperty);
-                rightExpression = Expression.Lambda(innerMemberAccess, rightParameterExpression);
+                outerKeyType = outerKeyProperty.PropertyType;
+                MemberExpression innerMemberAccess = Expression.MakeMemberAccess(outerParameter, outerKeyProperty);
+                outerExpression = Expression.Lambda(innerMemberAccess, outerParameterExpression);
             }
         }
     }
     public LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type? joinOutputType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType)
     {
         elementType = null;
-        LambdaExpression right = CreateExpression(sqlJoinStatement.Right, out Type rightMappedType, joinOutputType);
-        LambdaExpression left = CreateExpression(sqlJoinStatement.Left, out Type leftMappedType, joinOutputType);
 
-        Type? leftKeyType = null;
-        Type? rightKeyType = null;
+        LambdaExpression right = CreateExpression(sqlJoinStatement.Right, out Type? rightMappedType, joinOutputType);
+        LambdaExpression left = CreateExpression(sqlJoinStatement.Left, out Type? leftMappedType, joinOutputType);
+
+        Type? outerType = null;
+        Type? innerElementType = null;
+        Type? innerType = null;
+
+        SqlTableExpression? innerSqlExpression = sqlJoinStatement.Right;
+        SqlTableExpression? outerSqlExpression = sqlJoinStatement.Left;
+
+        bool isOneToManyJoin = false;
+        switch(sqlJoinStatement.JoinOperator) {
+            case SqlJoinOperatorType.InnerJoin:
+            {
+                innerType = rightMappedType;
+                innerElementType = rightMappedType;
+                outerType = leftMappedType;
+                break;
+            }
+            case SqlJoinOperatorType.LeftOuterJoin: {
+                isOneToManyJoin = true;
+                outerType = leftMappedType;
+                innerElementType = rightMappedType;
+                innerType = typeof(IEnumerable<>).MakeGenericType(rightMappedType);
+                break;
+            }
+        }
+
+        Type? innerKeyType = null;
+        Type? outerKeyType = null;
 
         Expression? outerKeySelector = null;  //Func<TOuter, TKey>
         Expression? innerKeySelector = null;  //Func<TInner, TKey>
@@ -342,12 +384,12 @@ public class ExpressionAdapter : IExpressionAdapter
             typeof(Func<>)
                 .MakeGenericType(joinOutputType);
 
-        ParameterExpression innerParameterExpression = Expression.Parameter(leftMappedType, "left");
-        ParameterExpression outerParameterExpression = Expression.Parameter(rightMappedType, "right");
+        ParameterExpression innerParameterExpression = Expression.Parameter(innerType, "inner");
+        ParameterExpression? outerParameterExpression =  Expression.Parameter(outerType, "outer");
 
         List<MemberBinding> bindings = new List<MemberBinding>();
-        bindings.AddRange(GetMemberBindingsRecursive(joinOutputType, leftMappedType, sqlJoinStatement.Left, innerParameterExpression));
-        bindings.AddRange(GetMemberBindingsRecursive(joinOutputType, rightMappedType, sqlJoinStatement.Right, outerParameterExpression));
+        bindings.AddRange(GetMemberBindingsRecursive(joinOutputType, innerElementType, innerSqlExpression, innerParameterExpression));
+        bindings.AddRange(GetMemberBindingsRecursive(joinOutputType, outerType, outerSqlExpression, outerParameterExpression));
 
         Type typeTupleOfTOuterAndTInner = joinOutputType;
         elementType = typeTupleOfTOuterAndTInner;
@@ -368,12 +410,12 @@ public class ExpressionAdapter : IExpressionAdapter
                             if (localleftExpression != null)
                             {
                                 innerKeySelector = localleftExpression;
-                                leftKeyType = localleftKeyType;
+                                innerKeyType = localleftKeyType;
                             }
                             else if (localrightExpression != null)
                             {
                                 outerKeySelector = localrightExpression;
-                                rightKeyType = localrightKeyType;
+                                outerKeyType = localrightKeyType;
                                 conditionSidesSwitched = true;
                             }
                         }
@@ -386,17 +428,24 @@ public class ExpressionAdapter : IExpressionAdapter
                         {
                             Type? localleftKeyType = null, localrightKeyType = null;
                             Expression? localleftExpression = null, localrightExpression = null;
+
+                            ParameterExpression parameterExpression = 
+                                sqlJoinStatement.JoinOperator == SqlJoinOperatorType.InnerJoin? 
+                                    outerParameterExpression 
+                                    : 
+                                    Expression.Parameter(outerType, "j");
+
                             CreateJoinConditionsExpression(outerSqlScalarRefExpression, leftMappedType, rightMappedType, innerParameterExpression, outerParameterExpression, out localleftKeyType, out localrightKeyType, out localleftExpression, out localrightExpression);
                             if (localleftExpression != null)
                             {
                                 innerKeySelector = localleftExpression;
-                                leftKeyType = localleftKeyType;
+                                innerKeyType = localleftKeyType;
                             }
                             else if (localrightExpression != null)
                             {
                                 outerKeySelector = localrightExpression;
-                                rightKeyType = localrightKeyType;
-                                conditionSidesSwitched = true;
+                                outerKeyType = localrightKeyType;
+                                //conditionSidesSwitched = true;
                             }
                         }
                         break;
@@ -419,43 +468,182 @@ public class ExpressionAdapter : IExpressionAdapter
 
         Type typeIEnumerableOfTOuter = typeof(IEnumerable<>).MakeGenericType(rightMappedType);
         Type typeIEnumerableOfTInner = typeof(IEnumerable<>).MakeGenericType(leftMappedType);
-        Type typeFuncTakingTOuterReturningTKey = typeof(Func<,>).MakeGenericType(rightMappedType, rightKeyType);
-        Type typeFuncTakingTInnerReturningTKey = typeof(Func<,>).MakeGenericType(leftMappedType, leftKeyType);
+        Type typeFuncTakingTOuterReturningTKey = typeof(Func<,>).MakeGenericType(rightMappedType, outerKeyType);
+        Type typeFuncTakingTInnerReturningTKey = typeof(Func<,>).MakeGenericType(leftMappedType, innerKeyType);
 
-        Type typeResultSelector = typeof(Func<,,>).MakeGenericType(leftMappedType, rightMappedType, typeTupleOfTOuterAndTInner);
+        bool isOuterJoin = sqlJoinStatement.JoinOperator != SqlJoinOperatorType.InnerJoin;
+        Type typeResultSelector 
+            = typeof(Func<,,>)
+                .MakeGenericType(
+                    leftMappedType, 
+                    isOuterJoin? 
+                        typeof(IEnumerable<>)
+                            .MakeGenericType(rightMappedType) 
+                        : 
+                        rightMappedType, 
+                    typeTupleOfTOuterAndTInner
+                    );
 
         ParameterExpression paramOfTypeTOuter = Expression.Parameter(rightMappedType, outerParameterName);
         ParameterExpression paramOfTypeTInner = Expression.Parameter(leftMappedType, innerParameterName);
 
-        //        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
-        Type typeIEnumerableOfTuple =
-            typeof(IEnumerable<>)
-                .MakeGenericType(joinOutputType);
+        Type typeIEnumerableOfTuple = typeof(IEnumerable<>).MakeGenericType(joinOutputType);
 
-        MethodInfo joinSpecificMethodInfo =
-            conditionSidesSwitched ?
-                joinMethodInfo.MakeGenericMethod(new[] { rightMappedType, leftMappedType, leftKeyType, joinOutputType })
-                :
-                joinMethodInfo.MakeGenericMethod(new[] { leftMappedType, rightMappedType, leftKeyType, joinOutputType });
+        switch (sqlJoinStatement.JoinOperator) {
+            case SqlJoinOperatorType.InnerJoin: { 
+                //        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
 
-        MethodCallExpression joinMethodCall = Expression.Call(
-            method: joinSpecificMethodInfo,
-            instance: null,
-            arguments:
-            conditionSidesSwitched ?
-                new Expression[] { right.Body, left.Body, outerKeySelector, innerKeySelector, joinSelector }
-                :
-                new Expression[] { left.Body, right.Body, innerKeySelector, outerKeySelector, joinSelector }
-        );
 
-        Type funcTakingNothingAndReturningIEnumerableOfTuple =
-            typeof(Func<>)
-                .MakeGenericType(typeIEnumerableOfTuple);
+                MethodInfo joinSpecificMethodInfo =
+                    conditionSidesSwitched ?
+                        joinMethodInfo.MakeGenericMethod(new[] { rightMappedType, leftMappedType, innerKeyType, joinOutputType })
+                        :
+                        joinMethodInfo.MakeGenericMethod(new[] { leftMappedType, rightMappedType, innerKeyType, joinOutputType });
 
-        LambdaExpression l2 = Expression.Lambda(
-            funcTakingNothingAndReturningIEnumerableOfTuple,
-            joinMethodCall, new ParameterExpression[] { });
-        return l2;
+                MethodCallExpression joinMethodCall = Expression.Call(
+                    method: joinSpecificMethodInfo,
+                    instance: null,
+                    arguments:
+                    conditionSidesSwitched ?
+                        new Expression[] { right.Body, left.Body, outerKeySelector, innerKeySelector, joinSelector }
+                        :
+                        new Expression[] { left.Body, right.Body, innerKeySelector, outerKeySelector, joinSelector }
+                );
+
+                Type funcTakingNothingAndReturningIEnumerableOfTuple =
+                    typeof(Func<>)
+                        .MakeGenericType(typeIEnumerableOfTuple);
+
+                LambdaExpression l2 = Expression.Lambda(
+                    funcTakingNothingAndReturningIEnumerableOfTuple,
+                    joinMethodCall, new ParameterExpression[] { });
+                return l2;
+            }
+
+            case SqlJoinOperatorType.LeftOuterJoin : {
+                MethodInfo groupJoinMethodInfo = _ienumerableMethodInfoProvider.GetIEnumerableGroupJoinMethodInfo();
+                MethodInfo groupJoinSpecificMethodInfo =
+                        groupJoinMethodInfo.MakeGenericMethod(new[] { outerType, innerElementType , innerKeyType, joinOutputType });
+
+                Expression groupJoinCall = 
+                    Expression.Call(
+                        instance: null,
+                        method: groupJoinSpecificMethodInfo,
+                        arguments:
+                                new Expression[] { left.Body, right.Body, innerKeySelector, outerKeySelector, joinSelector }
+                            );
+                //public static IEnumerable<TResult> SelectMany<TSource, TCollection, TResult>(this IEnumerable<TSource> source, Func<TSource, IEnumerable<TCollection>> collectionSelector, Func<TSource, TCollection, TResult> resultSelector);
+                Type typeFuncTakesTSourceReturnsIEnumerableOfTResult = typeof(Func<,>).MakeGenericType(joinOutputType, typeof(IEnumerable<>).MakeGenericType(innerElementType));
+                ParameterExpression collectionSelectorParameter = Expression.Parameter(joinOutputType, "x");
+                MemberInfo? innerMemberAccess = joinOutputType.GetProperties().FirstOrDefault( p => p.PropertyType.GetGenericTypeDefinition() == typeof(IEnumerable<>) );
+                Expression collectionMemberAccessExpression = 
+                    Expression
+                        .MakeMemberAccess(collectionSelectorParameter, innerMemberAccess);
+
+                Expression defaultIfEmptyCall = 
+                    Expression.Call(
+                        instance: null,
+                        method: _ienumerableMethodInfoProvider.GetIEnumerableDefaultIfEmptyMethodInfo().MakeGenericMethod(innerElementType),
+                        collectionMemberAccessExpression);
+
+                LambdaExpression collectionSelector =
+                    Expression.Lambda(
+                        typeFuncTakesTSourceReturnsIEnumerableOfTResult,
+                        defaultIfEmptyCall,
+                        collectionSelectorParameter
+                    );
+
+                //    (xinner, xouter) => new {outer = xouter, inner = xinner.customer});
+                Field? leftField = _sqlFieldProvider.GetFields(sqlJoinStatement.Left).FirstOrDefault();
+                Field? rightField = _sqlFieldProvider.GetFields(sqlJoinStatement.Right).FirstOrDefault();
+                IEnumerable<Field> fields = new [] {leftField, rightField };
+                Type flattenedJoinOutputType = _myObjectBuilder.CompileResultType($"Flattened{joinOutputType.Name}", fields);
+                
+                Type typeFuncTakingLHSandRHSReturningTFlattened =
+                    typeof(Func<,,>)
+                        .MakeGenericType(joinOutputType, innerElementType, flattenedJoinOutputType);
+
+                ParameterExpression outerParameter = Expression.Parameter(joinOutputType, "oo");
+                ParameterExpression innerParameter = Expression.Parameter(innerElementType, "ii");
+
+                PropertyInfo? outputOuterProperty = flattenedJoinOutputType.GetProperty( leftField.FieldName );
+
+                PropertyInfo? outputInnerProperty = flattenedJoinOutputType.GetProperty( rightField.FieldName );
+                PropertyInfo? bindingInnerProperty = joinOutputType.GetProperty( leftField.FieldName);
+
+                MemberBinding[] bindings2 = new [] {
+                    Expression.Bind( 
+                        outputOuterProperty,
+                        Expression.MakeMemberAccess(
+                            outerParameter,
+                            bindingInnerProperty ) ),   
+
+                    Expression.Bind( 
+                        outputInnerProperty,
+                        innerParameter)
+                };
+
+                ConstructorInfo? constructorInfo =
+                    flattenedJoinOutputType
+                        .GetConstructor(new Type[] { });
+
+                Expression testExpr = Expression.MemberInit(
+                    Expression.New(constructorInfo, new Expression[] { }),
+                    bindings2
+                );
+
+                LambdaExpression resultSelector = 
+                    Expression.Lambda(
+                        typeFuncTakingLHSandRHSReturningTFlattened,
+                        testExpr,
+                        new ParameterExpression[] {outerParameter, innerParameter}
+                        );
+
+                MethodInfo selectMany = _ienumerableMethodInfoProvider.GetIEnumerableSelectManyMethodInfo();
+                MethodInfo selectManyGeneric = selectMany.MakeGenericMethod(joinOutputType, innerElementType, flattenedJoinOutputType);
+                Expression selectManyCall = 
+                    Expression.Call(
+                        instance: null,
+                        method: selectManyGeneric,
+                        arguments:
+                                new Expression[] { groupJoinCall, collectionSelector, resultSelector }
+                            );
+/*
+                    x => x.catjoin.DefaultIfEmpty(), 
+                    (x, category) => new {category = category, customer = x.customer});
+                    */
+                Type funcTakingNothingAndReturningIEnumerableOfTuple =
+                    typeof(Func<>)
+                        .MakeGenericType(
+                            typeof(IEnumerable<>)
+                                .MakeGenericType(flattenedJoinOutputType));
+
+                LambdaExpression l2 = Expression.Lambda(
+                    funcTakingNothingAndReturningIEnumerableOfTuple,
+                    selectManyCall, new ParameterExpression[] { });
+
+                joinOutputType = flattenedJoinOutputType;
+                elementType = flattenedJoinOutputType;
+                return l2;
+
+                //public static IEnumerable<TResult> GroupJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, IEnumerable<TInner>, TResult> resultSelector);
+                /*
+                    var xx = 
+                            _customers
+                                .GroupJoin(
+                                    _categories, 
+                                    customer => customer.CategoryId, 
+                                    cat => cat.Id, 
+                                    (customer, catjoin) => new {customer = customer, catjoin = catjoin} )
+                                .SelectMany( 
+                                    x => x.catjoin.DefaultIfEmpty(), 
+                                    (x, category) => new {category = category, customer = x.customer});
+                */
+                break;
+            }
+        } 
+        return null;
+    
 
     }
 
@@ -791,7 +979,19 @@ public class ExpressionAdapter : IExpressionAdapter
 
         ParameterExpression transformerParam = Expression.Parameter(inputType, parameterName);
         Type funcTakingCustomerReturningCustomer = typeof(Func<,>).MakeGenericType(inputType, dynamicType);
+        List<MemberBinding> bindings = GetBindings(inputType, parameterName, fields, null, dynamicType, transformerParam);
 
+        Expression newDynamicType = Expression.MemberInit(
+            Expression.New(dynamicType),
+            bindings
+        );
+
+        LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, newDynamicType, transformerParam);
+        return transformer;
+    }
+
+    private static List<MemberBinding> GetBindings(Type inputType, string parameterName, IEnumerable<FieldMapping> fields, IEnumerable<FieldMapping>? oneToManyFields, Type dynamicType, ParameterExpression transformerParam)
+    {
         List<MemberBinding> bindings = new List<MemberBinding>();
         foreach (FieldMapping f in fields)
         {
@@ -841,13 +1041,7 @@ public class ExpressionAdapter : IExpressionAdapter
             }
         }
 
-        Expression newDynamicType = Expression.MemberInit(
-            Expression.New(dynamicType),
-            bindings
-        );
-
-        LambdaExpression transformer = Expression.Lambda(funcTakingCustomerReturningCustomer, newDynamicType, transformerParam);
-        return transformer;
+        return bindings;
     }
 
     public LambdaExpression? CreateSelectScalarExpression(SqlSelectClause selectClause, Type inputType, string parameterName, out Type? outputType)

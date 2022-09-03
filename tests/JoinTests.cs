@@ -27,12 +27,16 @@ public class JoinTests
     public void TestSelectJoinStatement()
     {
         const string sql = @"
-SELECT dbo.Customers.Id, dbo.Customers.Name, dbo.Categories.Name
+SELECT 
+    dbo.Customers.Id, 
+    dbo.Customers.Name, 
+    dbo.Categories.Name
 FROM dbo.Customers 
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.StateId = 1";
-        var parseResult = Parser.Parse(sql);
+        const string expected = "_customers.Join(_categories, ll => ll.CategoryId, rr => rr.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})";
 
+        var parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
             parseResult.Script.Batches
                 .SelectMany( b => b.Statements)
@@ -45,10 +49,10 @@ WHERE dbo.Customers.StateId = 1";
                 .ProcessSelectStatement(selectStatement) : null;
         
         Xunit.Assert.NotNull(lambda);
-        string expressionString = lambda.ToString();
+        string expressionString = lambda.Body.ToString();
         Xunit.Assert.Equal(
-            "() => value(tests.Category[]).Join(value(tests.Customer[]), right => right.Id, left => left.CategoryId, (right, left) => new Dynamic_dbo_Customers_dbo_Categories() {dbo_Customers = left, dbo_Categories = right}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new Dynamic_Dynamic_dbo_Customers_dbo_Categories() {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})", 
-            expressionString);
+            expected,
+            _csharpConverter.ConvertLambdaStringToCSharp( expressionString));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
@@ -153,7 +157,7 @@ WHERE dbo.States.Name = 'MA'";
         Xunit.Assert.NotNull(lambda);
         Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
         string jsonResult = JsonConvert.SerializeObject(result);
         WriteLine(jsonResult);  
 
@@ -161,5 +165,64 @@ WHERE dbo.States.Name = 'MA'";
             "[{\"CategoryId\":1,\"StateId\":1,\"BrandId\":1,\"Id\":1,\"Name\":\"Nic\",\"Id2\":1,\"Name2\":\"Tier 1\",\"Id3\":1,\"Name3\":\"MA\",\"Id4\":1,\"Name4\":\"Coke\"}]",
             jsonResult
         );
+    }
+
+    [Fact]
+    public void TestSelectStarFromLeftOuterTripleJoinStatement()
+    {
+        const string sql = @"
+SELECT *
+FROM dbo.Customers 
+LEFT OUTER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
+WHERE dbo.Customers.Name = 'Nic'";
+        const string expected = "_customers.GroupJoin(_categories, ll => ll.CategoryId, rr => rr.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).SelectMany(x => x.dbo_Categories.DefaultIfEmpty(), (oo, ii) => new {dbo_Customers = oo.dbo_Customers, dbo_Categories = ii}).Where(c => (c.dbo_Customers.Name == \"Nic\")).Select(Param_0 => new {Id = Param_0.dbo_Customers.Id, Name = Param_0.dbo_Customers.Name, StateId = Param_0.dbo_Customers.StateId, CategoryId = Param_0.dbo_Customers.CategoryId, BrandId = Param_0.dbo_Customers.BrandId, Id2 = Param_0.dbo_Categories.Id, Name2 = Param_0.dbo_Categories.Name})";
+        
+        ParseResult? parseResult = Parser.Parse(sql);
+        SqlSelectStatement? selectStatement =
+            parseResult?.Script?.Batches?
+                .SelectMany( b => b.Statements)
+                .OfType<SqlSelectStatement>()
+                .Cast<SqlSelectStatement>()
+                .FirstOrDefault();
+
+        LambdaExpression? lambda = selectStatement != null?
+            _sqlSelectStatementExpressionAdapter
+                .ProcessSelectStatement(selectStatement) : null;
+
+        Xunit.Assert.NotNull(lambda);
+        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
+        string jsonResult = JsonConvert.SerializeObject(result);
+        WriteLine(jsonResult);  
+
+        Xunit.Assert.Equal(
+            "[{\"Id\":1,\"Name\":\"Nic\",\"StateId\":1,\"CategoryId\":1,\"BrandId\":1,\"Id2\":1,\"Name2\":\"Tier 1\"}]",
+            jsonResult
+        );
+
+        #region for-reference
+        /*
+        Customer[] _customers  = {};
+        Category[] _categories  = {};
+        
+        Expression<Func<IEnumerable<dynamic>>> x = () =>
+            from customer in _customers
+                join cat in _categories on customer.CategoryId equals cat.Id into catjoin
+                from category in catjoin.DefaultIfEmpty()
+                select new { category, customer };
+        var xx = 
+            _customers
+                .GroupJoin(
+                    _categories, 
+                    customer => customer.CategoryId, 
+                    cat => cat.Id, 
+                    (customer, catjoin) => new {customer = customer, catjoin = catjoin} )
+                .SelectMany( 
+                    x => x.catjoin.DefaultIfEmpty(), 
+                    (x, category) => new {category = category, customer = x.customer});
+        */
+        #endregion
+
     }
 }

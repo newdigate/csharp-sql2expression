@@ -92,6 +92,33 @@ public class MyObjectBuilder : IMyObjectBuilder
         propertyBuilder.SetGetMethod(getPropMthdBldr);
         propertyBuilder.SetSetMethod(setPropMthdBldr);
     }
+
+    public Type CompileResultType(string typeSignature, IEnumerable<Field> leftFields, IEnumerable<Field> rightFields, string leftPropertyName, string rightPropertyName)
+    {
+        Type rightHandSideType = CompileResultType($"{typeSignature}_RHS", rightFields);
+        
+        TypeBuilder tb = GetTypeBuilder(typeSignature);
+        ConstructorBuilder constructor = tb.DefineDefaultConstructor(MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
+        
+        foreach (var field in leftFields)
+            CreateProperty(tb, field.FieldName, field.FieldType);
+
+        if (rightFields.Count() == 1) { 
+            CreateProperty(tb, 
+                rightPropertyName.Replace(".", "_"), 
+                typeof(IEnumerable<>)
+                    .MakeGenericType(rightFields.First().FieldType )
+            );
+        } else {
+            CreateProperty(tb, 
+                rightPropertyName.Replace(".", "_"), 
+                typeof(IEnumerable<>)
+                    .MakeGenericType(rightHandSideType));
+        }
+
+        Type objectType = tb.CreateType();
+        return objectType;
+    }
 }
 
 public class DynamicDataSetElementAttribute : Attribute {

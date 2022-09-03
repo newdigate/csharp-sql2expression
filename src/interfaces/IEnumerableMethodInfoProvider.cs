@@ -9,4 +9,7 @@ public interface IEnumerableMethodInfoProvider
     MethodInfo GetIEnumerableSelectMethodInfo();
     MethodInfo GetIEnumerableWhereMethodInfo();
     MethodInfo GetIEnumerableCountMethodInfo();
+    MethodInfo GetIEnumerableGroupJoinMethodInfo();
+    MethodInfo GetIEnumerableSelectManyMethodInfo();
+    MethodInfo GetIEnumerableDefaultIfEmptyMethodInfo();
 }
