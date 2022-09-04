@@ -1,9 +1,7 @@
 using Microsoft.SqlServer.Management.SqlParser.Parser;
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
-using static System.Diagnostics.Debug;
 using Newtonsoft.Json;
-
 namespace tests;
 
 using System.Reflection;
@@ -58,21 +56,16 @@ INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.StateId = 1";
         const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})";
 
-        var parseResult = Parser.Parse(sql);
-        SqlSelectStatement? selectStatement =
-            parseResult.Script.Batches
-                .SelectMany( b => b.Statements)
-                .OfType<SqlSelectStatement>()
-                .Cast<SqlSelectStatement>()
-                .FirstOrDefault();
+        SqlSelectStatement? selectStatement = GetSingleSqlSelectStatement(sql);
 
-        LambdaExpression? lambda = selectStatement != null?
+        LambdaExpression? lambda = selectStatement != null ?
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
-        
-        Xunit.Assert.NotNull(lambda);
-        string expressionString = lambda.Body.ToString();
-        string csharpString = _csharpConverter.ConvertLambdaStringToCSharp( expressionString);
+
+        Assert.NotNull(lambda);
+        string csharpString = _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString());
+
+        #region boiler-plate
         string csharpClass = $@"
 using System.Linq;
 public class Brand {{
@@ -108,14 +101,105 @@ public static class TestClass {{
     }}
 }}
 ";
-        
+        #endregion
+
         CSharpCompilation compilation =
             _csharpCompilationProvider
                 .CompileCSharp(
-                    new string[] {csharpClass},
+                    new string[] { csharpClass },
                     out IDictionary<SyntaxTree, CompilationUnitSyntax> trees);
-        
-        MethodDeclarationSyntax method = 
+
+        InvocationExpressionSyntax invocation = GetInvocationSyntax(trees);
+        List<InvocationExpressionSyntax> chainedInvocations = GetChainedInvokations(invocation);
+
+        InvocationExpressionSyntax selectInvocation = chainedInvocations[0];
+        MemberAccessExpressionSyntax firstMethod = (MemberAccessExpressionSyntax)selectInvocation.Expression;
+        Assert.Equal("Select", firstMethod.Name.ToFullString());
+
+        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = GetSelectMethodAnonObjectInitializers(selectInvocation);
+        List<string> actualInitializers = propertyDeclarators.Select(pd => pd.ToFullString()).ToList();
+        Assert.Contains("dbo_Customers_Id = Param_0.dbo_Customers.Id", actualInitializers);
+        Assert.Contains("dbo_Customers_Name = Param_0.dbo_Customers.Name", actualInitializers);
+        Assert.Contains("dbo_Categories_Name = Param_0.dbo_Categories.Name", actualInitializers);
+
+        InvocationExpressionSyntax whereInvocation = chainedInvocations[1];
+        MemberAccessExpressionSyntax whereMethod = (MemberAccessExpressionSyntax)whereInvocation.Expression;
+        Assert.Equal("Where", whereMethod.Name.ToFullString());
+
+        IEnumerable<ArgumentSyntax> whereMethodCallArguments = whereInvocation.ArgumentList.Arguments;
+        Assert.Equal(1, whereMethodCallArguments.Count());
+
+        List<string> whereMethodCallArgsToString = whereMethodCallArguments.Select(a => a.ToFullString()).ToList();
+        Assert.Equal("c => (c.dbo_Customers.StateId == 1)", whereMethodCallArgsToString[0]);
+
+        InvocationExpressionSyntax joinInvocation = chainedInvocations[2];
+        MemberAccessExpressionSyntax? joinMethod = (MemberAccessExpressionSyntax)joinInvocation.Expression;
+        Assert.NotNull(joinMethod);
+        Assert.Equal("Join", joinMethod.Name.ToFullString());
+
+        IEnumerable<ArgumentSyntax> joinMethodCallArguments = joinInvocation.ArgumentList.Arguments;
+        Assert.Equal(4, joinMethodCallArguments.Count());
+
+        List<string> joinMethodCallArgsToString = joinMethodCallArguments.Select(a => a.ToFullString()).ToList();
+        Assert.Equal("_categories", joinMethodCallArgsToString[0]);
+        Assert.Equal("outer => outer.CategoryId", joinMethodCallArgsToString[1]);
+        Assert.Equal("inner => inner.Id", joinMethodCallArgsToString[2]);
+        Assert.Equal("(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}", joinMethodCallArgsToString[3]);
+
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);
+        string jsonResult = JsonConvert.SerializeObject(result);
+        System.Diagnostics.Debug.WriteLine(jsonResult);
+
+        Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\"}]");
+    }
+
+    private static SqlSelectStatement? GetSingleSqlSelectStatement(string sql)
+    {
+        var parseResult = Parser.Parse(sql);
+        SqlSelectStatement? selectStatement =
+            parseResult.Script.Batches
+                .SelectMany(b => b.Statements)
+                .OfType<SqlSelectStatement>()
+                .Cast<SqlSelectStatement>()
+                .FirstOrDefault();
+        return selectStatement;
+    }
+
+    private static List<AnonymousObjectMemberDeclaratorSyntax> GetSelectMethodAnonObjectInitializers(InvocationExpressionSyntax selectInvocation)
+    {
+        CSharpSyntaxNode? selectArgument = (selectInvocation.ArgumentList.Arguments[0].Expression as SimpleLambdaExpressionSyntax)?.Body;
+        AnonymousObjectCreationExpressionSyntax? selectObjectInitializer = selectArgument as AnonymousObjectCreationExpressionSyntax;
+        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = selectObjectInitializer.Initializers.ToList();
+        return propertyDeclarators;
+    }
+
+    private List<InvocationExpressionSyntax> GetChainedInvokations(ExpressionSyntax expression)
+    {
+        List<InvocationExpressionSyntax> result = new List<InvocationExpressionSyntax>();
+        ExpressionSyntax? current = expression;
+        while (current != null) {
+            if (current is InvocationExpressionSyntax invocationExpressionSyntax) {
+                result.Add(invocationExpressionSyntax);
+                if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax) {
+                    current = memberAccessExpressionSyntax.Expression;
+                }
+                else current = null;
+            } else current = null;
+        }
+        return result;
+    }
+
+    private static InvocationExpressionSyntax GetInvocationSyntax(IDictionary<SyntaxTree, CompilationUnitSyntax> trees)
+    {
+        LocalDeclarationStatementSyntax varx = GetLocalDeclarationStatement(trees);
+
+        InvocationExpressionSyntax invocation = (InvocationExpressionSyntax)varx.Declaration.Variables.First().Initializer.Value;
+        return invocation;
+    }
+
+    private static LocalDeclarationStatementSyntax GetLocalDeclarationStatement(IDictionary<SyntaxTree, CompilationUnitSyntax> trees)
+    {
+        MethodDeclarationSyntax method =
             trees
                 .Values
                 .First()
@@ -124,39 +208,9 @@ public static class TestClass {{
                 .DescendantNodes()
                 .OfType<MethodDeclarationSyntax>()
                 .First();
+
         LocalDeclarationStatementSyntax varx = method.Body.Statements.OfType<LocalDeclarationStatementSyntax>().First();
-        InvocationExpressionSyntax invocation = (InvocationExpressionSyntax)varx.Declaration.Variables.First().Initializer.Value;
-        MemberAccessExpressionSyntax firstMethod = (MemberAccessExpressionSyntax)invocation.Expression;
-        Xunit.Assert.Equal("Select", firstMethod.Name.ToFullString() );
-        
-        InvocationExpressionSyntax whereInvocation = (InvocationExpressionSyntax)firstMethod.Expression;
-        MemberAccessExpressionSyntax whereMethod = (MemberAccessExpressionSyntax)whereInvocation.Expression;
-        Xunit.Assert.Equal("Where", whereMethod.Name.ToFullString() );
-        IEnumerable<ArgumentSyntax> whereMethodCallArguments = whereInvocation.ArgumentList.Arguments; 
-        Xunit.Assert.Equal(1, whereMethodCallArguments.Count());
-
-        List<string> whereMethodCallArgsToString = whereMethodCallArguments.Select( a => a.ToFullString()).ToList();
-        Xunit.Assert.Equal("c => (c.dbo_Customers.StateId == 1)", whereMethodCallArgsToString[0]);
-
-        InvocationExpressionSyntax joinInvocation = (InvocationExpressionSyntax)whereMethod.Expression;
-        MemberAccessExpressionSyntax? joinMethod = (MemberAccessExpressionSyntax)joinInvocation.Expression;
-        Xunit.Assert.NotNull( joinMethod );
-        Xunit.Assert.Equal("Join", joinMethod.Name.ToFullString() );
-
-        IEnumerable<ArgumentSyntax> joinMethodCallArguments = joinInvocation.ArgumentList.Arguments; 
-        Xunit.Assert.Equal(4, joinMethodCallArguments.Count());
-        
-        List<string> joinMethodCallArgsToString = joinMethodCallArguments.Select( a => a.ToFullString()).ToList();
-        Xunit.Assert.Equal("_categories", joinMethodCallArgsToString[0]);
-        Xunit.Assert.Equal("outer => outer.CategoryId", joinMethodCallArgsToString[1]);
-        Xunit.Assert.Equal("inner => inner.Id", joinMethodCallArgsToString[2]);
-        Xunit.Assert.Equal("(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}", joinMethodCallArgsToString[3]);
-
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
-        string jsonResult = JsonConvert.SerializeObject(result);
-        WriteLine(jsonResult);  
-
-        Xunit.Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\"}]");
+        return varx;
     }
 
     [Fact]
@@ -182,14 +236,14 @@ WHERE dbo.States.Name = 'MA'";
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
 
-        Xunit.Assert.NotNull(lambda);
-        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+        Assert.NotNull(lambda);
+        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
-        WriteLine(jsonResult);  
+        System.Diagnostics.Debug.WriteLine(jsonResult);  
 
-        Xunit.Assert.Equal(
+        Assert.Equal(
             "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\"}]",
             jsonResult);
     }
@@ -217,14 +271,14 @@ WHERE dbo.States.Name = 'MA' and dbo.Brands.Name = 'Coke' ";
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
 
-        Xunit.Assert.NotNull(lambda);
-        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+        Assert.NotNull(lambda);
+        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
-        WriteLine(jsonResult);  
+        System.Diagnostics.Debug.WriteLine(jsonResult);  
 
-        Xunit.Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\",\"dbo_Brands_Name\":\"Coke\"}]");
+        Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\",\"dbo_Brands_Name\":\"Coke\"}]");
     }
 
     [Fact]
@@ -250,14 +304,14 @@ WHERE dbo.States.Name = 'MA'";
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
 
-        Xunit.Assert.NotNull(lambda);
-        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+        Assert.NotNull(lambda);
+        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
         string jsonResult = JsonConvert.SerializeObject(result);
-        WriteLine(jsonResult);  
+        System.Diagnostics.Debug.WriteLine(jsonResult);  
 
-        Xunit.Assert.Equal(
+        Assert.Equal(
             "[{\"CategoryId\":1,\"StateId\":1,\"BrandId\":1,\"Id\":1,\"Name\":\"Nic\",\"Id2\":1,\"Name2\":\"Tier 1\",\"Id3\":1,\"Name3\":\"MA\",\"Id4\":1,\"Name4\":\"Coke\"}]",
             jsonResult
         );
@@ -285,14 +339,14 @@ WHERE dbo.Customers.Name = 'Nic'";
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
 
-        Xunit.Assert.NotNull(lambda);
-        Xunit.Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+        Assert.NotNull(lambda);
+        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
         string jsonResult = JsonConvert.SerializeObject(result);
-        WriteLine(jsonResult);  
+        System.Diagnostics.Debug.WriteLine(jsonResult);  
 
-        Xunit.Assert.Equal(
+        Assert.Equal(
             "[{\"Id\":1,\"Name\":\"Nic\",\"StateId\":1,\"CategoryId\":1,\"BrandId\":1,\"Id2\":1,\"Name2\":\"Tier 1\"}]",
             jsonResult
         );
