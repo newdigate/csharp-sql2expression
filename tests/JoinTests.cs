@@ -5,6 +5,11 @@ using static System.Diagnostics.Debug;
 using Newtonsoft.Json;
 
 namespace tests;
+
+using System.Reflection;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using src;
 
 public class JoinTests
@@ -12,6 +17,7 @@ public class JoinTests
     private readonly LambdaExpressionEvaluator _lambdaEvaluator;
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
     private readonly LambdaStringToCSharpConverter _csharpConverter; 
+    private readonly ICSharpCompilationProvider _csharpCompilationProvider;
 
     public JoinTests() {
         TestDataSet dataSet = new TestDataSet();
@@ -21,6 +27,22 @@ public class JoinTests
             factory
                 .Create(dataSet.Map);
         _csharpConverter = factory.CreateLambdaExpressionConverter(dataSet.Map, dataSet.InstanceMap);
+
+        string assemlyLoc = typeof(System.Linq.Enumerable).GetTypeInfo().Assembly.Location;
+        DirectoryInfo? coreDir = Directory.GetParent(assemlyLoc);
+        if (coreDir == null)
+            throw new ApplicationException("Unable to locate core framework directory...");
+        MetadataReference[] defaultReferences = 
+            new[] { 
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Linq.Expressions.Expression).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Console).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(SyntaxTree).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(NuGet.Frameworks.CompatibilityTable).Assembly.Location),
+                MetadataReference.CreateFromFile(coreDir.FullName + Path.DirectorySeparatorChar + "System.Runtime.dll"),
+            };
+        _csharpCompilationProvider = new CSharpCompilationProvider(defaultReferences);
     }
 
     [Fact]
@@ -50,9 +72,85 @@ WHERE dbo.Customers.StateId = 1";
         
         Xunit.Assert.NotNull(lambda);
         string expressionString = lambda.Body.ToString();
-        Xunit.Assert.Equal(
-            expected,
-            _csharpConverter.ConvertLambdaStringToCSharp( expressionString));
+        string csharpString = _csharpConverter.ConvertLambdaStringToCSharp( expressionString);
+        string csharpClass = $@"
+using System.Linq;
+public class Brand {{
+    public int Id {{ get; set; }}
+    public string Name {{ get; set; }}
+}}
+public class Category {{
+    public int Id {{ get; set; }}
+    public string Name {{ get; set; }}
+}}
+
+public class Customer {{
+    public int Id {{ get; set; }}
+    public string Name {{ get; set; }}
+    public int StateId {{ get; set; }}
+    public int CategoryId {{ get; set; }}
+    public int BrandId {{get; set;}}
+}}
+
+public class State {{
+    public int Id {{ get; set; }}
+    public string Name {{ get; set; }}
+}}
+
+public static class TestClass {{
+    public static readonly Customer[] _customers = new Customer[] {{}};
+    public static readonly Category[] _categories = new Category[] {{}};
+    public static readonly State[] _states = new State[] {{}};
+    public static readonly Brand[] _brands = new Brand[] {{}};
+
+    public static void TestExpression() {{
+        var x = {csharpString};
+    }}
+}}
+";
+        
+        CSharpCompilation compilation =
+            _csharpCompilationProvider
+                .CompileCSharp(
+                    new string[] {csharpClass},
+                    out IDictionary<SyntaxTree, CompilationUnitSyntax> trees);
+        
+        MethodDeclarationSyntax method = 
+            trees
+                .Values
+                .First()
+                .SyntaxTree
+                .GetCompilationUnitRoot()
+                .DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .First();
+        LocalDeclarationStatementSyntax varx = method.Body.Statements.OfType<LocalDeclarationStatementSyntax>().First();
+        InvocationExpressionSyntax invocation = (InvocationExpressionSyntax)varx.Declaration.Variables.First().Initializer.Value;
+        MemberAccessExpressionSyntax firstMethod = (MemberAccessExpressionSyntax)invocation.Expression;
+        Xunit.Assert.Equal("Select", firstMethod.Name.ToFullString() );
+        
+        InvocationExpressionSyntax whereInvocation = (InvocationExpressionSyntax)firstMethod.Expression;
+        MemberAccessExpressionSyntax whereMethod = (MemberAccessExpressionSyntax)whereInvocation.Expression;
+        Xunit.Assert.Equal("Where", whereMethod.Name.ToFullString() );
+        IEnumerable<ArgumentSyntax> whereMethodCallArguments = whereInvocation.ArgumentList.Arguments; 
+        Xunit.Assert.Equal(1, whereMethodCallArguments.Count());
+
+        List<string> whereMethodCallArgsToString = whereMethodCallArguments.Select( a => a.ToFullString()).ToList();
+        Xunit.Assert.Equal("c => (c.dbo_Customers.StateId == 1)", whereMethodCallArgsToString[0]);
+
+        InvocationExpressionSyntax joinInvocation = (InvocationExpressionSyntax)whereMethod.Expression;
+        MemberAccessExpressionSyntax? joinMethod = (MemberAccessExpressionSyntax)joinInvocation.Expression;
+        Xunit.Assert.NotNull( joinMethod );
+        Xunit.Assert.Equal("Join", joinMethod.Name.ToFullString() );
+
+        IEnumerable<ArgumentSyntax> joinMethodCallArguments = joinInvocation.ArgumentList.Arguments; 
+        Xunit.Assert.Equal(4, joinMethodCallArguments.Count());
+        
+        List<string> joinMethodCallArgsToString = joinMethodCallArguments.Select( a => a.ToFullString()).ToList();
+        Xunit.Assert.Equal("_categories", joinMethodCallArgsToString[0]);
+        Xunit.Assert.Equal("outer => outer.CategoryId", joinMethodCallArgsToString[1]);
+        Xunit.Assert.Equal("inner => inner.Id", joinMethodCallArgsToString[2]);
+        Xunit.Assert.Equal("(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}", joinMethodCallArgsToString[3]);
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
@@ -200,7 +298,7 @@ WHERE dbo.Customers.Name = 'Nic'";
         );
 
         #region for-reference
-        /*
+        
         Customer[] _customers  = {};
         Category[] _categories  = {};
         
@@ -219,7 +317,7 @@ WHERE dbo.Customers.Name = 'Nic'";
                 .SelectMany( 
                     x => x.catjoin.DefaultIfEmpty(), 
                     (x, category) => new {category = category, customer = x.customer});
-        */
+        
         #endregion
 
     }
