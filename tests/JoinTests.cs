@@ -2,13 +2,13 @@ using Microsoft.SqlServer.Management.SqlParser.Parser;
 using Microsoft.SqlServer.Management.SqlParser.SqlCodeDom;
 using System.Linq.Expressions;
 using Newtonsoft.Json;
-namespace tests;
-
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using src;
+
+namespace tests;
 
 public class JoinTests
 {
@@ -16,6 +16,9 @@ public class JoinTests
     private readonly SqlSelectStatementExpressionAdapter _sqlSelectStatementExpressionAdapter;
     private readonly LambdaStringToCSharpConverter _csharpConverter; 
     private readonly ICSharpCompilationProvider _csharpCompilationProvider;
+    private readonly ITestHelper _testHelper;
+    private readonly IAssertHelper _assertHelper;
+    private readonly IInvocationExpressionSyntaxHelper _invocationExpressionSyntaxHelper;
 
     public JoinTests() {
         TestDataSet dataSet = new TestDataSet();
@@ -38,113 +41,65 @@ public class JoinTests
                 MetadataReference.CreateFromFile(typeof(System.Console).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(SyntaxTree).Assembly.Location),
                 MetadataReference.CreateFromFile(typeof(NuGet.Frameworks.CompatibilityTable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(tests.TestDataSet).Assembly.Location),
                 MetadataReference.CreateFromFile(coreDir.FullName + Path.DirectorySeparatorChar + "System.Runtime.dll"),
             };
         _csharpCompilationProvider = new CSharpCompilationProvider(defaultReferences);
+        _testHelper = new TestHelper();
+        _assertHelper = new AssertHelper();
+        _invocationExpressionSyntaxHelper = new InvocationExpressionSyntaxHelper(_csharpCompilationProvider, _testHelper);
     }
 
     [Fact]
     public void TestSelectJoinStatement()
     {
-        const string sql = @"
-SELECT 
-    dbo.Customers.Id, 
-    dbo.Customers.Name, 
-    dbo.Categories.Name
+        const string sql = 
+@"SELECT dbo.Customers.Id, dbo.Customers.Name, dbo.Categories.Name
 FROM dbo.Customers 
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.StateId = 1";
-        const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})";
-
-        SqlSelectStatement? selectStatement = GetSingleSqlSelectStatement(sql);
+        SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
 
         LambdaExpression? lambda = selectStatement != null ?
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
-
         Assert.NotNull(lambda);
+
         string csharpString = _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString());
-
-        #region boiler-plate
-        string csharpClass = $@"
-using System.Linq;
-public class Brand {{
-    public int Id {{ get; set; }}
-    public string Name {{ get; set; }}
-}}
-public class Category {{
-    public int Id {{ get; set; }}
-    public string Name {{ get; set; }}
-}}
-
-public class Customer {{
-    public int Id {{ get; set; }}
-    public string Name {{ get; set; }}
-    public int StateId {{ get; set; }}
-    public int CategoryId {{ get; set; }}
-    public int BrandId {{get; set;}}
-}}
-
-public class State {{
-    public int Id {{ get; set; }}
-    public string Name {{ get; set; }}
-}}
-
-public static class TestClass {{
-    public static readonly Customer[] _customers = new Customer[] {{}};
-    public static readonly Category[] _categories = new Category[] {{}};
-    public static readonly State[] _states = new State[] {{}};
-    public static readonly Brand[] _brands = new Brand[] {{}};
-
-    public static void TestExpression() {{
-        var x = {csharpString};
-    }}
-}}
-";
-        #endregion
-
-        CSharpCompilation compilation =
-            _csharpCompilationProvider
-                .CompileCSharp(
-                    new string[] { csharpClass },
-                    out IDictionary<SyntaxTree, CompilationUnitSyntax> trees);
-
-        InvocationExpressionSyntax invocation = GetInvocationSyntax(trees);
-        List<InvocationExpressionSyntax> chainedInvocations = GetChainedInvokations(invocation);
+        InvocationExpressionSyntax invocation = _invocationExpressionSyntaxHelper.GetInvocationExpressionSyntax(csharpString);
+        List<InvocationExpressionSyntax> chainedInvocations = _testHelper.GetChainedInvokations(invocation);
 
         InvocationExpressionSyntax selectInvocation = chainedInvocations[0];
-        MemberAccessExpressionSyntax firstMethod = (MemberAccessExpressionSyntax)selectInvocation.Expression;
-        Assert.Equal("Select", firstMethod.Name.ToFullString());
-
-        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = GetSelectMethodAnonObjectInitializers(selectInvocation);
-        List<string> actualInitializers = propertyDeclarators.Select(pd => pd.ToFullString()).ToList();
-        Assert.Contains("dbo_Customers_Id = Param_0.dbo_Customers.Id", actualInitializers);
-        Assert.Contains("dbo_Customers_Name = Param_0.dbo_Customers.Name", actualInitializers);
-        Assert.Contains("dbo_Categories_Name = Param_0.dbo_Categories.Name", actualInitializers);
+        Assert.Equal(
+            "Select",  
+            ((MemberAccessExpressionSyntax)selectInvocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertSelectInitializers(
+                selectInvocation,
+                "dbo_Customers_Id = Param_0.dbo_Customers.Id",
+                "dbo_Customers_Name = Param_0.dbo_Customers.Name",
+                "dbo_Categories_Name = Param_0.dbo_Categories.Name");
 
         InvocationExpressionSyntax whereInvocation = chainedInvocations[1];
-        MemberAccessExpressionSyntax whereMethod = (MemberAccessExpressionSyntax)whereInvocation.Expression;
-        Assert.Equal("Where", whereMethod.Name.ToFullString());
-
-        IEnumerable<ArgumentSyntax> whereMethodCallArguments = whereInvocation.ArgumentList.Arguments;
-        Assert.Equal(1, whereMethodCallArguments.Count());
-
-        List<string> whereMethodCallArgsToString = whereMethodCallArguments.Select(a => a.ToFullString()).ToList();
-        Assert.Equal("c => (c.dbo_Customers.StateId == 1)", whereMethodCallArgsToString[0]);
+        Assert.Equal(
+            "Where", 
+            ((MemberAccessExpressionSyntax)whereInvocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertArguments(
+                whereInvocation.ArgumentList.Arguments,
+                "c => (c.dbo_Customers.StateId == 1)");
 
         InvocationExpressionSyntax joinInvocation = chainedInvocations[2];
-        MemberAccessExpressionSyntax? joinMethod = (MemberAccessExpressionSyntax)joinInvocation.Expression;
-        Assert.NotNull(joinMethod);
-        Assert.Equal("Join", joinMethod.Name.ToFullString());
-
-        IEnumerable<ArgumentSyntax> joinMethodCallArguments = joinInvocation.ArgumentList.Arguments;
-        Assert.Equal(4, joinMethodCallArguments.Count());
-
-        List<string> joinMethodCallArgsToString = joinMethodCallArguments.Select(a => a.ToFullString()).ToList();
-        Assert.Equal("_categories", joinMethodCallArgsToString[0]);
-        Assert.Equal("outer => outer.CategoryId", joinMethodCallArgsToString[1]);
-        Assert.Equal("inner => inner.Id", joinMethodCallArgsToString[2]);
-        Assert.Equal("(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}", joinMethodCallArgsToString[3]);
+        Assert.Equal(
+            "Join", 
+            (joinInvocation.Expression as MemberAccessExpressionSyntax)?.Name.ToFullString());
+        _assertHelper
+            .AssertArguments(
+                joinInvocation.ArgumentList.Arguments,
+                "_categories", 
+                "outer => outer.CategoryId", 
+                "inner => inner.Id", 
+                "(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}");
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);
         string jsonResult = JsonConvert.SerializeObject(result);
@@ -153,65 +108,6 @@ public static class TestClass {{
         Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\"}]");
     }
 
-    private static SqlSelectStatement? GetSingleSqlSelectStatement(string sql)
-    {
-        var parseResult = Parser.Parse(sql);
-        SqlSelectStatement? selectStatement =
-            parseResult.Script.Batches
-                .SelectMany(b => b.Statements)
-                .OfType<SqlSelectStatement>()
-                .Cast<SqlSelectStatement>()
-                .FirstOrDefault();
-        return selectStatement;
-    }
-
-    private static List<AnonymousObjectMemberDeclaratorSyntax> GetSelectMethodAnonObjectInitializers(InvocationExpressionSyntax selectInvocation)
-    {
-        CSharpSyntaxNode? selectArgument = (selectInvocation.ArgumentList.Arguments[0].Expression as SimpleLambdaExpressionSyntax)?.Body;
-        AnonymousObjectCreationExpressionSyntax? selectObjectInitializer = selectArgument as AnonymousObjectCreationExpressionSyntax;
-        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = selectObjectInitializer.Initializers.ToList();
-        return propertyDeclarators;
-    }
-
-    private List<InvocationExpressionSyntax> GetChainedInvokations(ExpressionSyntax expression)
-    {
-        List<InvocationExpressionSyntax> result = new List<InvocationExpressionSyntax>();
-        ExpressionSyntax? current = expression;
-        while (current != null) {
-            if (current is InvocationExpressionSyntax invocationExpressionSyntax) {
-                result.Add(invocationExpressionSyntax);
-                if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax) {
-                    current = memberAccessExpressionSyntax.Expression;
-                }
-                else current = null;
-            } else current = null;
-        }
-        return result;
-    }
-
-    private static InvocationExpressionSyntax GetInvocationSyntax(IDictionary<SyntaxTree, CompilationUnitSyntax> trees)
-    {
-        LocalDeclarationStatementSyntax varx = GetLocalDeclarationStatement(trees);
-
-        InvocationExpressionSyntax invocation = (InvocationExpressionSyntax)varx.Declaration.Variables.First().Initializer.Value;
-        return invocation;
-    }
-
-    private static LocalDeclarationStatementSyntax GetLocalDeclarationStatement(IDictionary<SyntaxTree, CompilationUnitSyntax> trees)
-    {
-        MethodDeclarationSyntax method =
-            trees
-                .Values
-                .First()
-                .SyntaxTree
-                .GetCompilationUnitRoot()
-                .DescendantNodes()
-                .OfType<MethodDeclarationSyntax>()
-                .First();
-
-        LocalDeclarationStatementSyntax varx = method.Body.Statements.OfType<LocalDeclarationStatementSyntax>().First();
-        return varx;
-    }
 
     [Fact]
     public void TestSelectDoubleJoinStatement()
