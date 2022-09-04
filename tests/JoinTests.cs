@@ -34,7 +34,7 @@ SELECT
 FROM dbo.Customers 
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.StateId = 1";
-        const string expected = "_customers.Join(_categories, ll => ll.CategoryId, rr => rr.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})";
+        const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Where(c => (c.dbo_Customers.StateId == 1)).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name})";
 
         var parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
@@ -106,8 +106,7 @@ INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA' and dbo.Brands.Name = 'Coke' ";
-        const string expected = "_brands.Join(_states.Join(_categories.Join(_customers, right => right.Id, left => left.CategoryId, (right, left) => new {dbo_Customers = left, dbo_Categories = right}), right => right.Id, left => left.dbo_Customers.StateId, (right, left) => new {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = right}), right => right.Id, left => left.dbo_Customers.BrandId, (right, left) => new {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = left.dbo_States, dbo_Brands = right}).Where(c => ((c.dbo_States.Name == \"MA\") And (c.dbo_Brands.Name == \"Coke\"))).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name, dbo_States_Name = Param_0.dbo_States.Name, dbo_Brands_Name = Param_0.dbo_Brands.Name})";
-        
+        const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Join(_states, outer => outer.dbo_Customers.StateId, inner => inner.Id, (outer, inner) => new {dbo_States = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories}).Join(_brands, outer => outer.dbo_Customers.BrandId, inner => inner.Id, (outer, inner) => new {dbo_Brands = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories, dbo_States = outer.dbo_States}).Where(c => ((c.dbo_States.Name == \"MA\") And (c.dbo_Brands.Name == \"Coke\"))).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name, dbo_States_Name = Param_0.dbo_States.Name, dbo_Brands_Name = Param_0.dbo_Brands.Name})";
         ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
             parseResult?.Script.Batches
@@ -140,8 +139,7 @@ INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA'";
-        const string expected = "_brands.Join(_states.Join(_categories.Join(_customers, right => right.Id, left => left.CategoryId, (right, left) => new {dbo_Customers = left, dbo_Categories = right}), right => right.Id, left => left.dbo_Customers.StateId, (right, left) => new {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = right}), right => right.Id, left => left.dbo_Customers.BrandId, (right, left) => new {dbo_Customers = left.dbo_Customers, dbo_Categories = left.dbo_Categories, dbo_States = left.dbo_States, dbo_Brands = right}).Where(c => (c.dbo_States.Name == \"MA\")).Select(Param_0 => new {CategoryId = Param_0.dbo_Customers.CategoryId, StateId = Param_0.dbo_Customers.StateId, BrandId = Param_0.dbo_Customers.BrandId, Id = Param_0.dbo_Customers.Id, Name = Param_0.dbo_Customers.Name, Id2 = Param_0.dbo_Categories.Id, Name2 = Param_0.dbo_Categories.Name, Id3 = Param_0.dbo_States.Id, Name3 = Param_0.dbo_States.Name, Id4 = Param_0.dbo_Brands.Id, Name4 = Param_0.dbo_Brands.Name})";
-
+        const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Join(_states, outer => outer.dbo_Customers.StateId, inner => inner.Id, (outer, inner) => new {dbo_States = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories}).Join(_brands, outer => outer.dbo_Customers.BrandId, inner => inner.Id, (outer, inner) => new {dbo_Brands = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories, dbo_States = outer.dbo_States}).Where(c => (c.dbo_States.Name == \"MA\")).Select(Param_0 => new {Id = Param_0.dbo_Categories.Id, Name = Param_0.dbo_Categories.Name, CategoryId = Param_0.dbo_Customers.CategoryId, StateId = Param_0.dbo_Customers.StateId, BrandId = Param_0.dbo_Customers.BrandId, Id2 = Param_0.dbo_Customers.Id, Name2 = Param_0.dbo_Customers.Name, Id3 = Param_0.dbo_States.Id, Name3 = Param_0.dbo_States.Name, Id4 = Param_0.dbo_Brands.Id, Name4 = Param_0.dbo_Brands.Name})";
         ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =
             parseResult?.Script?.Batches?
