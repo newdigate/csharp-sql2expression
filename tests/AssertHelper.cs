@@ -18,9 +18,20 @@ public class AssertHelper : IAssertHelper
         }
     }
 
-    public void AssertSelectInitializers(InvocationExpressionSyntax selectInvocation, params string[] expectedInitializers)
+    public void AssertInitializers(ExpressionSyntax selectInvocation, params string[] expectedInitializers)
     {
-        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = GetSelectMethodAnonObjectInitializers(selectInvocation);
+        List<AnonymousObjectMemberDeclaratorSyntax>? propertyDeclarators = null;
+        switch (selectInvocation) {
+            case InvocationExpressionSyntax invocationExpressionSyntax: 
+                propertyDeclarators = GetSelectMethodAnonObjectInitializers(invocationExpressionSyntax); 
+                break;
+            case AnonymousObjectCreationExpressionSyntax anonymousObjectCreationExpressionSyntax:
+                propertyDeclarators = GetSelectMethodAnonObjectInitializers(anonymousObjectCreationExpressionSyntax); 
+                break;
+            default:
+                throw new Exception($"Test is not sure how to get initializers for {selectInvocation.GetType()}");
+        }
+        
         List<string> actualInitializers = propertyDeclarators.Select(pd => pd.ToFullString()).ToList();
         foreach (string expectedInitializer in expectedInitializers)
         {
@@ -32,7 +43,12 @@ public class AssertHelper : IAssertHelper
     {
         CSharpSyntaxNode? selectArgument = (selectInvocation.ArgumentList.Arguments[0].Expression as SimpleLambdaExpressionSyntax)?.Body;
         AnonymousObjectCreationExpressionSyntax? selectObjectInitializer = selectArgument as AnonymousObjectCreationExpressionSyntax;
-        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = selectObjectInitializer.Initializers.ToList();
+        return GetSelectMethodAnonObjectInitializers(selectObjectInitializer);
+    }
+
+    public List<AnonymousObjectMemberDeclaratorSyntax> GetSelectMethodAnonObjectInitializers(AnonymousObjectCreationExpressionSyntax anonymousObjectCreationExpressionSyntax)
+    {
+        List<AnonymousObjectMemberDeclaratorSyntax> propertyDeclarators = anonymousObjectCreationExpressionSyntax.Initializers.ToList();
         return propertyDeclarators;
     }
 }

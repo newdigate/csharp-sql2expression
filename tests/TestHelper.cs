@@ -21,26 +21,6 @@ public class TestHelper : ITestHelper
     }
 
 
-    public List<InvocationExpressionSyntax> GetChainedInvokations(ExpressionSyntax expression)
-    {
-        List<InvocationExpressionSyntax> result = new List<InvocationExpressionSyntax>();
-        ExpressionSyntax? current = expression;
-        while (current != null)
-        {
-            if (current is InvocationExpressionSyntax invocationExpressionSyntax)
-            {
-                result.Add(invocationExpressionSyntax);
-                if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax)
-                {
-                    current = memberAccessExpressionSyntax.Expression;
-                }
-                else current = null;
-            }
-            else current = null;
-        }
-        return result;
-    }
-
     public InvocationExpressionSyntax GetInvocationSyntax(IDictionary<SyntaxTree, CompilationUnitSyntax> trees)
     {
         LocalDeclarationStatementSyntax varx = GetLocalDeclarationStatement(trees);
@@ -64,5 +44,6 @@ public class TestHelper : ITestHelper
         LocalDeclarationStatementSyntax varx = method.Body.Statements.OfType<LocalDeclarationStatementSyntax>().First();
         return varx;
     }
+
 
 }

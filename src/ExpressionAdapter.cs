@@ -841,9 +841,8 @@ public class ExpressionAdapter : IExpressionAdapter
                     ExpressionType? booleanOperator = null;
                     switch (sqlBinaryBooleanExpression.Operator)
                     {
-                        case SqlBooleanOperatorType.And: booleanOperator = ExpressionType.And; break;
-                        case SqlBooleanOperatorType.Or: booleanOperator = ExpressionType.Or; break;
-
+                        case SqlBooleanOperatorType.And: booleanOperator = ExpressionType.AndAlso; break;
+                        case SqlBooleanOperatorType.Or: booleanOperator = ExpressionType.OrElse; break;
                     }
                     if (booleanOperator != null)
                         selectorExpression = Expression.MakeBinary(booleanOperator.Value, left, right);

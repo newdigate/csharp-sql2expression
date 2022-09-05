@@ -22,32 +22,14 @@ public class JoinTests
 
     public JoinTests() {
         TestDataSet dataSet = new TestDataSet();
-        _lambdaEvaluator = new LambdaExpressionEvaluator();
-        SqlSelectStatementExpressionAdapterFactory factory =  new SqlSelectStatementExpressionAdapterFactory();
-        _sqlSelectStatementExpressionAdapter = 
-            factory
-                .Create(dataSet.Map);
-        _csharpConverter = factory.CreateLambdaExpressionConverter(dataSet.Map, dataSet.InstanceMap);
-
-        string assemlyLoc = typeof(System.Linq.Enumerable).GetTypeInfo().Assembly.Location;
-        DirectoryInfo? coreDir = Directory.GetParent(assemlyLoc);
-        if (coreDir == null)
-            throw new ApplicationException("Unable to locate core framework directory...");
-        MetadataReference[] defaultReferences = 
-            new[] { 
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Linq.Expressions.Expression).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(System.Console).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(SyntaxTree).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(NuGet.Frameworks.CompatibilityTable).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(tests.TestDataSet).Assembly.Location),
-                MetadataReference.CreateFromFile(coreDir.FullName + Path.DirectorySeparatorChar + "System.Runtime.dll"),
-            };
-        _csharpCompilationProvider = new CSharpCompilationProvider(defaultReferences);
         _testHelper = new TestHelper();
         _assertHelper = new AssertHelper();
-        _invocationExpressionSyntaxHelper = new InvocationExpressionSyntaxHelper(_csharpCompilationProvider, _testHelper);
+        _lambdaEvaluator = new LambdaExpressionEvaluator();
+        SqlSelectStatementExpressionAdapterFactory factory =  new SqlSelectStatementExpressionAdapterFactory();
+        _sqlSelectStatementExpressionAdapter = factory.Create(dataSet.Map);
+        _csharpConverter = factory.CreateLambdaExpressionConverter(dataSet.Map, dataSet.InstanceMap);
+        _csharpCompilationProvider = new CSharpCompilationProvider(dataSet.DefaultReferences);
+        _invocationExpressionSyntaxHelper = new InvocationExpressionSyntaxHelper(_csharpCompilationProvider, _testHelper, _csharpConverter);
     }
 
     [Fact]
@@ -59,22 +41,21 @@ FROM dbo.Customers
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.StateId = 1";
         SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
-
         LambdaExpression? lambda = selectStatement != null ?
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
         Assert.NotNull(lambda);
 
-        string csharpString = _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString());
-        InvocationExpressionSyntax invocation = _invocationExpressionSyntaxHelper.GetInvocationExpressionSyntax(csharpString);
-        List<InvocationExpressionSyntax> chainedInvocations = _testHelper.GetChainedInvokations(invocation);
+        List<InvocationExpressionSyntax> chainedInvocations = 
+            _invocationExpressionSyntaxHelper
+                .GetChainedInvokations(lambda.Body.ToString());
 
         InvocationExpressionSyntax selectInvocation = chainedInvocations[0];
         Assert.Equal(
             "Select",  
             ((MemberAccessExpressionSyntax)selectInvocation.Expression).Name.ToFullString());
         _assertHelper
-            .AssertSelectInitializers(
+            .AssertInitializers(
                 selectInvocation,
                 "dbo_Customers_Id = Param_0.dbo_Customers.Id",
                 "dbo_Customers_Name = Param_0.dbo_Customers.Name",
@@ -108,7 +89,6 @@ WHERE dbo.Customers.StateId = 1";
         Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\"}]");
     }
 
-
     [Fact]
     public void TestSelectDoubleJoinStatement()
     {
@@ -118,22 +98,69 @@ FROM dbo.Customers
 INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 WHERE dbo.States.Name = 'MA'";
-        const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Join(_states, outer => outer.dbo_Customers.StateId, inner => inner.Id, (outer, inner) => new {dbo_States = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories}).Where(c => (c.dbo_States.Name == \"MA\")).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name, dbo_States_Name = Param_0.dbo_States.Name})";
-        
-        ParseResult? parseResult = Parser.Parse(sql);
-        SqlSelectStatement? selectStatement =
-            parseResult.Script.Batches
-                .SelectMany( b => b.Statements)
-                .OfType<SqlSelectStatement>()
-                .Cast<SqlSelectStatement>()
-                .FirstOrDefault();
-
-        LambdaExpression? lambda = selectStatement != null?
+        SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
+        LambdaExpression? lambda = selectStatement != null ?
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
-
         Assert.NotNull(lambda);
-        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+
+        List<InvocationExpressionSyntax> chainedInvocations = 
+            _invocationExpressionSyntaxHelper
+                .GetChainedInvokations(lambda.Body.ToString());
+
+        InvocationExpressionSyntax selectInvocation = chainedInvocations[0];
+        Assert.Equal(
+            "Select",  
+            ((MemberAccessExpressionSyntax)selectInvocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertInitializers(
+                selectInvocation,
+                "dbo_Customers_Id = Param_0.dbo_Customers.Id", 
+                "dbo_Customers_Name = Param_0.dbo_Customers.Name", 
+                "dbo_Categories_Name = Param_0.dbo_Categories.Name", 
+                "dbo_States_Name = Param_0.dbo_States.Name"
+               );
+
+        InvocationExpressionSyntax whereInvocation = chainedInvocations[1];
+        Assert.Equal(
+            "Where", 
+            ((MemberAccessExpressionSyntax)whereInvocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertArguments(
+                whereInvocation.ArgumentList.Arguments,
+                "c => (c.dbo_States.Name == \"MA\")");
+        
+        InvocationExpressionSyntax join1Invocation = chainedInvocations[2];
+        Assert.Equal(
+            "Join", 
+            ((MemberAccessExpressionSyntax)join1Invocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertArguments(
+                join1Invocation.ArgumentList.Arguments,
+                "_states",
+                "outer => outer.dbo_Customers.StateId",
+                "inner => inner.Id",
+                "(outer, inner) => new {dbo_States = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories}");
+        LambdaExpressionSyntax? fourthParameter = join1Invocation.ArgumentList.Arguments[3].Expression as LambdaExpressionSyntax;
+        AnonymousObjectCreationExpressionSyntax? anonymousObjectCreationExpressionSyntax = fourthParameter?.Body as AnonymousObjectCreationExpressionSyntax;
+        _assertHelper
+            .AssertInitializers(
+                anonymousObjectCreationExpressionSyntax, 
+                "dbo_States = inner", 
+                "dbo_Customers = outer.dbo_Customers", 
+                "dbo_Categories = outer.dbo_Categories");
+
+        InvocationExpressionSyntax join2Invocation = chainedInvocations[3];
+        Assert.Equal(
+            "Join", 
+            ((MemberAccessExpressionSyntax)join2Invocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertArguments(
+                join2Invocation.ArgumentList.Arguments,
+                "_categories",
+                "outer => outer.CategoryId",
+                "inner => inner.Id",
+                "(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}");
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);
@@ -154,21 +181,37 @@ INNER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 INNER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
 INNER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
 WHERE dbo.States.Name = 'MA' and dbo.Brands.Name = 'Coke' ";
-        const string expected = "_customers.Join(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).Join(_states, outer => outer.dbo_Customers.StateId, inner => inner.Id, (outer, inner) => new {dbo_States = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories}).Join(_brands, outer => outer.dbo_Customers.BrandId, inner => inner.Id, (outer, inner) => new {dbo_Brands = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories, dbo_States = outer.dbo_States}).Where(c => ((c.dbo_States.Name == \"MA\") And (c.dbo_Brands.Name == \"Coke\"))).Select(Param_0 => new {dbo_Customers_Id = Param_0.dbo_Customers.Id, dbo_Customers_Name = Param_0.dbo_Customers.Name, dbo_Categories_Name = Param_0.dbo_Categories.Name, dbo_States_Name = Param_0.dbo_States.Name, dbo_Brands_Name = Param_0.dbo_Brands.Name})";
-        ParseResult? parseResult = Parser.Parse(sql);
-        SqlSelectStatement? selectStatement =
-            parseResult?.Script.Batches
-                .SelectMany( b => b.Statements)
-                .OfType<SqlSelectStatement>()
-                .Cast<SqlSelectStatement>()
-                .FirstOrDefault();
-
-        LambdaExpression? lambda = selectStatement != null?
+        SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
+        LambdaExpression? lambda = selectStatement != null ?
             _sqlSelectStatementExpressionAdapter
                 .ProcessSelectStatement(selectStatement) : null;
-
         Assert.NotNull(lambda);
-        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+
+        List<InvocationExpressionSyntax> chainedInvocations = 
+            _invocationExpressionSyntaxHelper
+                .GetChainedInvokations(lambda.Body.ToString());
+        
+        InvocationExpressionSyntax selectInvocation = chainedInvocations[0];
+        Assert.Equal(
+            "Select",  
+            ((MemberAccessExpressionSyntax)selectInvocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertInitializers(
+                selectInvocation,
+                "dbo_Customers_Id = Param_0.dbo_Customers.Id", 
+                "dbo_Customers_Name = Param_0.dbo_Customers.Name", 
+                "dbo_Categories_Name = Param_0.dbo_Categories.Name", 
+                "dbo_States_Name = Param_0.dbo_States.Name", 
+                "dbo_Brands_Name = Param_0.dbo_Brands.Name");
+
+        InvocationExpressionSyntax whereInvocation = chainedInvocations[1];
+        Assert.Equal(
+            "Where", 
+            ((MemberAccessExpressionSyntax)whereInvocation.Expression).Name.ToFullString());
+        _assertHelper
+            .AssertArguments(
+                whereInvocation.ArgumentList.Arguments,
+                "c => ((c.dbo_States.Name == \"MA\") && (c.dbo_Brands.Name == \"Coke\"))");
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
         string jsonResult = JsonConvert.SerializeObject(result);

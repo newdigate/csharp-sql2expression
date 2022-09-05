@@ -1,3 +1,5 @@
+using Microsoft.CodeAnalysis;
+
 namespace tests;
 
 public class TestDataSet {
@@ -18,5 +20,18 @@ public class TestDataSet {
             {   typeof(State),      nameof(_states)},
             {   typeof(Brand),      nameof(_brands)},
             {   typeof(Category),   nameof(_categories)}
-        };    
+        };  
+
+    public readonly MetadataReference[] DefaultReferences = 
+            new[] { 
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Linq.Expressions.Expression).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Console).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(SyntaxTree).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(NuGet.Frameworks.CompatibilityTable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(tests.TestDataSet).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(IEnumerable<>).Assembly.Location ),
+                MetadataReference.CreateFromFile(Path.Combine(Directory.GetParent(typeof(object)?.Assembly.Location).FullName, "System.Runtime.dll")),
+            };  
 }

@@ -28,6 +28,11 @@ public class LambdaStringToCSharpConverter {
         Regex newExpressions = new Regex("new [A-Za-z_][A-Za-z0-9_]*\\(\\)");
         lambdaString = newExpressions.Replace(lambdaString, "new");
 
-        return lambdaString;
+        return 
+            lambdaString
+                .Replace(" AndAlso ", " && ")
+                .Replace(" And ", " & ")
+                .Replace(" OrElse ", " || ")
+                .Replace(" Or ", " | ");
     }
 }

@@ -8,11 +8,13 @@ public class InvocationExpressionSyntaxHelper : IInvocationExpressionSyntaxHelpe
 {
     private readonly ICSharpCompilationProvider _csharpCompilationProvider;
     private readonly ITestHelper _testHelper;
+    private readonly LambdaStringToCSharpConverter _csharpConverter;
 
-    public InvocationExpressionSyntaxHelper(ICSharpCompilationProvider csharpCompilationProvider, ITestHelper testHelper)
+    public InvocationExpressionSyntaxHelper(ICSharpCompilationProvider csharpCompilationProvider, ITestHelper testHelper, LambdaStringToCSharpConverter csharpConverter)
     {
         _csharpCompilationProvider = csharpCompilationProvider;
         _testHelper = testHelper;
+        _csharpConverter = csharpConverter;
     }
 
     public InvocationExpressionSyntax GetInvocationExpressionSyntax(string csharpString)
@@ -44,4 +46,34 @@ public static class TestClass {{
         return invocation;
     }
 
+
+    private List<InvocationExpressionSyntax> GetChainedInvokations(ExpressionSyntax expression)
+    {
+        List<InvocationExpressionSyntax> result = new List<InvocationExpressionSyntax>();
+        ExpressionSyntax? current = expression;
+        while (current != null)
+        {
+            if (current is InvocationExpressionSyntax invocationExpressionSyntax)
+            {
+                result.Add(invocationExpressionSyntax);
+                if (invocationExpressionSyntax.Expression is MemberAccessExpressionSyntax memberAccessExpressionSyntax)
+                {
+                    current = memberAccessExpressionSyntax.Expression;
+                }
+                else current = null;
+            }
+            else current = null;
+        }
+        return result;
+    }
+
+
+    public List<InvocationExpressionSyntax> GetChainedInvokations(string rawExpression)
+    {
+        InvocationExpressionSyntax invocationExpressionSyntax = 
+                GetInvocationExpressionSyntax(
+                    _csharpConverter
+                        .ConvertLambdaStringToCSharp(rawExpression));
+        return GetChainedInvokations(invocationExpressionSyntax);
+    }
 }
