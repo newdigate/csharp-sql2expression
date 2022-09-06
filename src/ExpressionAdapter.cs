@@ -299,28 +299,7 @@ public class ExpressionAdapter : IExpressionAdapter
                             MemberExpression outerMemberAccess = Expression.MakeMemberAccess(outerParameter, outerKeyProperty);
                             outerExpression = Expression.Lambda(outerMemberAccess, outerParameter);
                             return;
-                        }/*
-                        else
-                        {
-                            PropertyInfo? joinTableProperty = outerMappedType.GetProperty(tablePropName);
-                            if (joinTableProperty != null)
-                            {
-                                outerKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
-                                MemberExpression outerMemberAccess = Expression.MakeMemberAccess(outerParameter, outerKeyProperty);
-                                outerExpression = Expression.Lambda(outerMemberAccess, outerParameter);
-                                return;
-                            }
-
-                            joinTableProperty = outerMappedType.GetProperty(tablePropName);
-                            if (joinTableProperty != null)
-                            {
-                                outerKeyProperty = joinTableProperty.PropertyType.GetProperty(colName);
-                                outerKeyType = outerKeyProperty.PropertyType;
-                                MemberExpression outerMemberAccess = Expression.MakeMemberAccess(outerParameter, outerKeyProperty);
-                                outerExpression = Expression.Lambda(outerMemberAccess, outerParameter);
-                                return;
-                            }
-                        }*/
+                        }
                     }
 
                     PropertyInfo? joinTableProperty = innerMappedType.GetProperty(tablePropName);
@@ -347,30 +326,6 @@ public class ExpressionAdapter : IExpressionAdapter
                     break;
                 }
         }
-
-        /*
-        if (innerKeyProperty != null)
-        {
-            innerKeyType = innerKeyProperty.PropertyType;
-            //ParameterExpression r2Parameter = Expression.Parameter(innerMappedType, "ll");
-            //MemberExpression innerMemberAccess = Expression.MakeMemberAccess(innerParameter, innerKeyProperty);
-            innerExpression = Expression.Lambda(innerExpression, false, innerParameter);
-        } else if (outerKeyProperty != null) {
-            outerKeyType = outerKeyProperty.PropertyType;
-            //ParameterExpression r2Parameter = Expression.Parameter(outerMappedType, "rr");
-            //MemberExpression outerMemberAccess = Expression.MakeMemberAccess(outerParameter, outerKeyProperty);
-            outerExpression = Expression.Lambda(outerExpression, outerParameter);
-        } else 
-        {
-            outerKeyProperty = outerMappedType.GetProperty(lefttableName);
-            if (outerKeyProperty != null)
-            {
-                outerKeyType = outerKeyProperty.PropertyType;
-                MemberExpression innerMemberAccess = Expression.MakeMemberAccess(outerParameter, outerKeyProperty);
-                outerExpression = Expression.Lambda(innerMemberAccess, outerParameterExpression);
-            }
-        }
-        */
     }
     public LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type? joinOutputType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType)
     {
@@ -433,7 +388,6 @@ public class ExpressionAdapter : IExpressionAdapter
         elementType = typeTupleOfTOuterAndTInner;
 
         LambdaExpression joinSelector = null;
-        bool conditionSidesSwitched = false;
         switch (onClause.Expression)
         {
             case SqlComparisonBooleanExpression sqlComparisonBooleanExpression:
@@ -454,7 +408,6 @@ public class ExpressionAdapter : IExpressionAdapter
                             {
                                 outerKeySelector = localrightExpression;
                                 outerKeyType = localrightKeyType;
-                                conditionSidesSwitched = true;
                             }
                         }
                         break;
@@ -483,7 +436,6 @@ public class ExpressionAdapter : IExpressionAdapter
                             {
                                 outerKeySelector = localrightExpression;
                                 outerKeyType = localrightKeyType;
-                                //conditionSidesSwitched = true;
                             }
                         }
                         break;
@@ -529,13 +481,7 @@ public class ExpressionAdapter : IExpressionAdapter
 
         switch (sqlJoinStatement.JoinOperator) {
             case SqlJoinOperatorType.InnerJoin: { 
-                //        public static IEnumerable<TResult> Join<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer, IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector, Func<TOuter, TInner, TResult> resultSelector);
-
-
                 MethodInfo joinSpecificMethodInfo =
-                 /*   conditionSidesSwitched ?
-                        joinMethodInfo.MakeGenericMethod(new[] { rightMappedType, leftMappedType, innerKeyType, joinOutputType })
-                        : */
                         joinMethodInfo.MakeGenericMethod(new[] { outerType, innerElementType, innerKeyType, joinOutputType });
 
                 MethodCallExpression joinMethodCall = Expression.Call(
@@ -643,10 +589,6 @@ public class ExpressionAdapter : IExpressionAdapter
                         arguments:
                                 new Expression[] { groupJoinCall, collectionSelector, resultSelector }
                             );
-/*
-                    x => x.catjoin.DefaultIfEmpty(), 
-                    (x, category) => new {category = category, customer = x.customer});
-                    */
                 Type funcTakingNothingAndReturningIEnumerableOfTuple =
                     typeof(Func<>)
                         .MakeGenericType(
