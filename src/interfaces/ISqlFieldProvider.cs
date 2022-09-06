@@ -4,6 +4,6 @@ namespace src;
 
 public interface ISqlFieldProvider
 {
-    IEnumerable<Field> GetFields(SqlJoinTableExpression sqlJoinStatement);
+    IEnumerable<Field> GetOuterFields(SqlJoinTableExpression sqlJoinStatement);
     IEnumerable<Field> GetFields(SqlTableExpression sqlTableExpression);
 }

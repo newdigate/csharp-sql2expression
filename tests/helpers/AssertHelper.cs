@@ -1,5 +1,6 @@
 namespace tests;
 
+using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -15,6 +16,26 @@ public class AssertHelper : IAssertHelper
         {
             Assert.Equal(arg, joinMethodCallArgumentList[index].ToFullString());
             index++;
+        }
+    }
+
+    public void AssertDynamicProperties(object item, Dictionary<string, object> dictionary)
+    {
+        foreach (PropertyInfo prop in item.GetType().GetProperties()) {
+            object? itemProperty = prop.GetValue(item);
+
+            System.Runtime.Serialization.DataMemberAttribute? dataMemberAttribute =
+                prop
+                    .GetCustomAttributes()
+                    .OfType<System.Runtime.Serialization.DataMemberAttribute>()
+                    .Cast<System.Runtime.Serialization.DataMemberAttribute>()
+                    .FirstOrDefault();
+            string fieldName = dataMemberAttribute?.Name?? prop.Name;
+            object? correspondingItem = dictionary.ContainsKey(fieldName)? dictionary[fieldName] : null;
+            if (itemProperty != null)
+                Assert.Equal(correspondingItem, itemProperty);
+            else
+                Assert.Null(correspondingItem);
         }
     }
 

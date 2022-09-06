@@ -34,22 +34,20 @@ public class ExpressionAdapter : IExpressionAdapter
         switch (expression)
         {
             case SqlQualifiedJoinTableExpression sqlJoinStatement:
-
-                if (joinOutputType == null)
-                {
-
-                    string leftName = GetTypeNameRecursive(sqlJoinStatement.Left);
-                    string rightName = GetTypeNameRecursive(sqlJoinStatement.Right);
-                    string dynamicTypeName = $"{sqlJoinStatement.JoinOperator}_{leftName.Replace(".", "_")}_{rightName.Replace(".", "_")}";
+                string leftName = GetOuterTypeNameRecursive(sqlJoinStatement.Left);
+                string rightName = GetOuterTypeNameRecursive(sqlJoinStatement.Right);
+                string dynamicTypeName = $"{sqlJoinStatement.JoinOperator}_{leftName.Replace(".", "_")}_{rightName.Replace(".", "_")}";
+                    
+                if (sqlJoinStatement.JoinOperator != SqlJoinOperatorType.InnerJoin) {
+                    IEnumerable<Field> outerFields = _sqlFieldProvider.GetFields(sqlJoinStatement.Left);
+                    IEnumerable<Field> innerFields = _sqlFieldProvider.GetFields(sqlJoinStatement.Right);
+                    joinOutputType = _myObjectBuilder.CompileResultType(dynamicTypeName, outerFields, innerFields, leftName, rightName);
+                } 
+                else if (joinOutputType == null ) {
                     switch (sqlJoinStatement.JoinOperator) {
                         case SqlJoinOperatorType.InnerJoin: 
-                            IEnumerable<Field> fields = _sqlFieldProvider.GetFields(sqlJoinStatement);
+                            IEnumerable<Field> fields = _sqlFieldProvider.GetOuterFields(sqlJoinStatement);
                             joinOutputType = _myObjectBuilder.CompileResultType(dynamicTypeName, fields);
-                            break;
-                        case SqlJoinOperatorType.LeftOuterJoin: 
-                            IEnumerable<Field> leftFields = _sqlFieldProvider.GetFields(sqlJoinStatement.Left);
-                            IEnumerable<Field> rightFields = _sqlFieldProvider.GetFields(sqlJoinStatement.Right);
-                            joinOutputType = _myObjectBuilder.CompileResultType(dynamicTypeName, leftFields, rightFields, leftName, rightName);
                             break;
                     }
                 }
@@ -207,6 +205,24 @@ public class ExpressionAdapter : IExpressionAdapter
         return "_";
     }
 
+    private string GetOuterTypeNameRecursive(SqlTableExpression tableExpression)
+    {
+        switch (tableExpression)
+        {
+            case SqlTableRefExpression sqlTableRefExpression: 
+                return sqlTableRefExpression.Sql;
+            case SqlJoinTableExpression sqlJoinTableExpression:
+                switch(sqlJoinTableExpression.JoinOperator) {
+                    case SqlJoinOperatorType.InnerJoin: 
+                        return $"{GetOuterTypeNameRecursive(sqlJoinTableExpression.Left)}_{GetOuterTypeNameRecursive(sqlJoinTableExpression.Right)}";
+                    case SqlJoinOperatorType.LeftOuterJoin: 
+                        return $"{GetOuterTypeNameRecursive(sqlJoinTableExpression.Left)}_{GetOuterTypeNameRecursive(sqlJoinTableExpression.Right)}";
+                }
+                break;
+        }
+        return "_";
+    }
+
     private void CreateJoinConditionsExpression(
         SqlScalarRefExpression sqlScalarRefExpression,
         Type innerMappedType,
@@ -358,6 +374,10 @@ public class ExpressionAdapter : IExpressionAdapter
     }
     public LambdaExpression? CreateJoinExpression(SqlJoinTableExpression sqlJoinStatement, Type? joinOutputType, string outerParameterName, string innerParameterName, SqlConditionClause onClause, out Type elementType)
     {
+        System.Diagnostics.Debug.WriteLine("CreateJoinExpression:     Left:" + sqlJoinStatement.Left.Sql);
+        System.Diagnostics.Debug.WriteLine("CreateJoinExpression:    Right:" + sqlJoinStatement.Right.Sql);
+        System.Diagnostics.Debug.WriteLine("CreateJoinExpression: Operator:" + sqlJoinStatement.JoinOperator);
+
         elementType = null;
         Type? outerType = null;
         Type? innerElementType = null;
@@ -550,7 +570,7 @@ public class ExpressionAdapter : IExpressionAdapter
                 //public static IEnumerable<TResult> SelectMany<TSource, TCollection, TResult>(this IEnumerable<TSource> source, Func<TSource, IEnumerable<TCollection>> collectionSelector, Func<TSource, TCollection, TResult> resultSelector);
                 Type typeFuncTakesTSourceReturnsIEnumerableOfTResult = typeof(Func<,>).MakeGenericType(joinOutputType, typeof(IEnumerable<>).MakeGenericType(innerElementType));
                 ParameterExpression collectionSelectorParameter = Expression.Parameter(joinOutputType, "x");
-                MemberInfo? innerMemberAccess = joinOutputType.GetProperties().FirstOrDefault( p => p.PropertyType.GetGenericTypeDefinition() == typeof(IEnumerable<>) );
+                MemberInfo? innerMemberAccess = joinOutputType.GetProperties().FirstOrDefault( p => p.PropertyType.IsGenericType && p.PropertyType.GetGenericTypeDefinition() == typeof(IEnumerable<>) );
                 Expression collectionMemberAccessExpression = 
                     Expression
                         .MakeMemberAccess(collectionSelectorParameter, innerMemberAccess);

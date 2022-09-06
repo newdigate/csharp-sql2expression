@@ -25,7 +25,7 @@ public class WhereTests
     public void TestWhereAndStatement()
     {
         const string sql = "SELECT * FROM dbo.Customers where Id = 1 and Name = 'Nic'";
-        const string expected = "_customers.Where(c => ((c.Id == 1) And (c.Name == \"Nic\")))";
+        const string expected = "_customers.Where(c => ((c.Id == 1) && (c.Name == \"Nic\")))";
         
         ParseResult? parseResult = Parser.Parse(sql);
         SqlSelectStatement? selectStatement =

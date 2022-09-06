@@ -12,11 +12,22 @@ public class SqlFieldProvider : ISqlFieldProvider
         _typeMapper = typeMapper;
     }
 
-    public IEnumerable<Field> GetFields(SqlJoinTableExpression sqlJoinStatement)
+    public IEnumerable<Field> GetOuterFields(SqlJoinTableExpression sqlJoinStatement)
     {
         List<Field> result = new List<Field>();
-        result.AddRange(GetFields(sqlJoinStatement.Left));
-        result.AddRange(GetFields(sqlJoinStatement.Right)); 
+        switch (sqlJoinStatement.JoinOperator) {
+            case SqlJoinOperatorType.InnerJoin: {
+                result.AddRange(GetFields(sqlJoinStatement.Left));
+                result.AddRange(GetFields(sqlJoinStatement.Right)); 
+                break;
+            }
+            case SqlJoinOperatorType.LeftOuterJoin: {
+                result.AddRange(GetFields(sqlJoinStatement.Left));
+                result.AddRange(GetFields(sqlJoinStatement.Right)); 
+                break;
+            }
+        }
+        
         return result;
     }
 
@@ -26,15 +37,16 @@ public class SqlFieldProvider : ISqlFieldProvider
         switch (sqlTableExpression)
         {
             case SqlJoinTableExpression sqlJoinTableExpression:
-                {
-                    result.AddRange(GetFields(sqlJoinTableExpression));
-                }
+            {
+                result.AddRange(GetOuterFields(sqlJoinTableExpression));
                 break;
+            }
+
             case SqlTableRefExpression sqlTableRefExpression:
-                {
-                    result.AddRange(GetFields(sqlTableRefExpression));
-                }
+            {
+                result.AddRange(GetFields(sqlTableRefExpression));
                 break;
+            }
         }
         return result;
     }
