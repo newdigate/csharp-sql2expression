@@ -32,6 +32,9 @@ public class AssertHelper : IAssertHelper
                     .FirstOrDefault();
             string fieldName = dataMemberAttribute?.Name?? prop.Name;
             object? correspondingItem = dictionary.ContainsKey(fieldName)? dictionary[fieldName] : null;
+            if (correspondingItem == null && dictionary.ContainsKey(prop.Name))
+                correspondingItem = dictionary[prop.Name];
+            
             if (itemProperty != null)
                 Assert.Equal(correspondingItem, itemProperty);
             else

@@ -163,6 +163,23 @@ WHERE dbo.States.Name = 'MA'";
                 "(outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}");
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
+        _assertHelper
+            .AssertDynamicProperties(
+                result.First(), 
+                new Dictionary<string,object>{ 
+                    {"dbo_Customers_Id", 1},
+                    {"Id2", 1},
+                    {"Id3", 1},
+                    {"Id4", 1},
+                    {"dbo_Categories_Name", "Tier 1"},
+                    {"dbo_Customers_Name", "Nic"},
+                    {"dbo_States_Name", "MA"},
+                    {"dbo_Brands_Name","Coke"},
+                    {"CategoryId", 1},
+                    {"BrandId", 1},
+                    {"StateId", 1}
+                });
+
         string jsonResult = JsonConvert.SerializeObject(result);
         System.Diagnostics.Debug.WriteLine(jsonResult);  
 
@@ -213,11 +230,17 @@ WHERE dbo.States.Name = 'MA' and dbo.Brands.Name = 'Coke' ";
                 whereInvocation.ArgumentList.Arguments,
                 "c => ((c.dbo_States.Name == \"MA\") && (c.dbo_Brands.Name == \"Coke\"))");
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda); 
-        string jsonResult = JsonConvert.SerializeObject(result);
-        System.Diagnostics.Debug.WriteLine(jsonResult);  
-
-        Assert.Equal(jsonResult, "[{\"dbo_Customers_Id\":1,\"dbo_Customers_Name\":\"Nic\",\"dbo_Categories_Name\":\"Tier 1\",\"dbo_States_Name\":\"MA\",\"dbo_Brands_Name\":\"Coke\"}]");
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);
+        _assertHelper
+            .AssertDynamicProperties(
+                result.First(), 
+                new Dictionary<string,object>{ 
+                    {"dbo_Customers_Id", 1},
+                    {"dbo_Categories_Name", "Tier 1"},
+                    {"dbo_Customers_Name", "Nic"},
+                    {"dbo_States_Name", "MA"},
+                    {"dbo_Brands_Name","Coke"},
+                });
     }
 
     [Fact]
@@ -243,14 +266,23 @@ WHERE dbo.States.Name = 'MA'";
             _invocationExpressionSyntaxHelper
                 .GetChainedInvokations(lambda.Body.ToString());
 
-        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
-        string jsonResult = JsonConvert.SerializeObject(result);
-        System.Diagnostics.Debug.WriteLine(jsonResult);  
-
-        Assert.Equal(
-            "[{\"CategoryId\":1,\"StateId\":1,\"BrandId\":1,\"Id\":1,\"Name\":\"Nic\",\"Id2\":1,\"Name2\":\"Tier 1\",\"Id3\":1,\"Name3\":\"MA\",\"Id4\":1,\"Name4\":\"Coke\"}]",
-            jsonResult
-        );
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);
+        _assertHelper
+            .AssertDynamicProperties(
+                result.First(), 
+                new Dictionary<string,object>{ 
+                    {"Id", 1},
+                    {"Id2", 1},
+                    {"Id3", 1},
+                    {"Id4", 1},
+                    {"Name", "Tier 1"},
+                    {"Name2", "Nic"},
+                    {"Name3", "MA"},
+                    {"Name4", "Coke"},
+                    {"CategoryId", 1},
+                    {"BrandId", 1},
+                    {"StateId", 1}
+                });
     }
 
     [Fact]
@@ -261,7 +293,7 @@ SELECT *
 FROM dbo.Customers 
 LEFT OUTER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.Name = 'Nic'";
-        const string expected = "_customers.GroupJoin(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).SelectMany(x => x.dbo_Categories.DefaultIfEmpty(), (oo, ii) => new {dbo_Customers = oo.dbo_Customers, dbo_Categories = ii}).Where(c => (c.dbo_Customers.Name == \"Nic\")).Select(Param_0 => new {Id = Param_0.dbo_Customers.Id, Name = Param_0.dbo_Customers.Name, StateId = Param_0.dbo_Customers.StateId, CategoryId = Param_0.dbo_Customers.CategoryId, BrandId = Param_0.dbo_Customers.BrandId, Id2 = Param_0.dbo_Categories.Id, Name2 = Param_0.dbo_Categories.Name})";
+        const string expected = "_customers.GroupJoin(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).SelectMany(x => x.dbo_Categories.DefaultIfEmpty(), (x, ii) => new {dbo_Customers = x.dbo_Customers, dbo_Categories = ii}).Where(c => (c.dbo_Customers.Name == \"Nic\")).Select(Param_0 => new {Id = Param_0.dbo_Categories.Id, Name = Param_0.dbo_Categories.Name, CategoryId = Param_0.dbo_Customers.CategoryId, Name2 = Param_0.dbo_Customers.Name, Id2 = Param_0.dbo_Customers.Id, StateId = Param_0.dbo_Customers.StateId, BrandId = Param_0.dbo_Customers.BrandId})";
         
         SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
 
@@ -273,37 +305,19 @@ WHERE dbo.Customers.Name = 'Nic'";
         Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
-        string jsonResult = JsonConvert.SerializeObject(result);
-        System.Diagnostics.Debug.WriteLine(jsonResult);  
-
-        Assert.Equal(
-            "[{\"Id\":1,\"Name\":\"Nic\",\"StateId\":1,\"CategoryId\":1,\"BrandId\":1,\"Id2\":1,\"Name2\":\"Tier 1\"}]",
-            jsonResult
-        );
-
-        #region for-reference
-        
-        Customer[] _customers  = {};
-        Category[] _categories  = {};
-        
-        Expression<Func<IEnumerable<dynamic>>> x = () =>
-            from customer in _customers
-                join cat in _categories on customer.CategoryId equals cat.Id into catjoin
-                from category in catjoin.DefaultIfEmpty()
-                select new { category, customer };
-        var xx = 
-            _customers
-                .GroupJoin(
-                    _categories, 
-                    customer => customer.CategoryId, 
-                    cat => cat.Id, 
-                    (customer, catjoin) => new {customer = customer, catjoin = catjoin} )
-                .SelectMany( 
-                    x => x.catjoin.DefaultIfEmpty(), 
-                    (x, category) => new {category = category, customer = x.customer});
-        
-        #endregion
-
+        Assert.Equal(1, result.Count());
+        _assertHelper
+            .AssertDynamicProperties(
+                result.First(), 
+                new Dictionary<string,object>{ 
+                    {"Id", 1},
+                    {"Id2", 1},
+                    {"Name", "Tier 1"},
+                    {"Name2", "Nic"},
+                    {"CategoryId", 1},
+                    {"BrandId", 1},
+                    {"StateId", 1}
+                });
     }
 
     [Fact]
@@ -324,25 +338,6 @@ WHERE dbo.Customers.Name = 'Nic'";
                 .ProcessSelectStatement(selectStatement) : null;
         Assert.NotNull(lambda);
 
-        List<InvocationExpressionSyntax> chainedInvocations = 
-            _invocationExpressionSyntaxHelper
-                .GetChainedInvokations(lambda.Body.ToString());
-
-        InvocationExpressionSyntax selectInvocation = chainedInvocations[0];
-        Assert.Equal(
-            "Select",  
-            ((MemberAccessExpressionSyntax)selectInvocation.Expression).Name.ToFullString());
-        _assertHelper
-            .AssertInitializers(
-                selectInvocation,
-                "CategoryId = Param_0.dbo_Customers.CategoryId", 
-                "BrandId = Param_0.dbo_Customers.BrandId", 
-                "Name = Param_0.dbo_Customers.Name", 
-                "Id = Param_0.dbo_Customers.Id", 
-                "StateId = Param_0.dbo_Customers.StateId",
-                "Id2 = Param_0.dbo_Brands.Id",
-                "Name2 = Param_0.dbo_Brands.Name");
-
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
         Assert.Equal(1, result.Count());
         _assertHelper
@@ -350,13 +345,16 @@ WHERE dbo.Customers.Name = 'Nic'";
                 result.First(), 
                 new Dictionary<string,object>{ 
                     {"Id", 1},
-                    {"Name", "Nic"},
+                    {"Id2", 1},
+                    {"Id3", 1},
+                    {"Name", "Tier 1"},
+                    {"Name2", "Nic"},
+                    {"Name3", "Coke"},
                     {"CategoryId", 1},
                     {"BrandId", 1},
-                    {"StateId", 1},
-                    {"Id2", 1},
-                    {"Name2", "Coke"}
+                    {"StateId", 1}
                 });
+
     }
 
 }
