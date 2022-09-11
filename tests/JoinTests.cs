@@ -294,7 +294,7 @@ FROM dbo.Customers
 LEFT OUTER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
 WHERE dbo.Customers.Name = 'Nic'";
         const string expected = "_customers.GroupJoin(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).SelectMany(x => x.dbo_Categories.DefaultIfEmpty(), (x, ii) => new {dbo_Customers = x.dbo_Customers, dbo_Categories = ii}).Where(c => (c.dbo_Customers.Name == \"Nic\")).Select(Param_0 => new {Id = Param_0.dbo_Categories.Id, Name = Param_0.dbo_Categories.Name, CategoryId = Param_0.dbo_Customers.CategoryId, Name2 = Param_0.dbo_Customers.Name, Id2 = Param_0.dbo_Customers.Id, StateId = Param_0.dbo_Customers.StateId, BrandId = Param_0.dbo_Customers.BrandId})";
-        
+
         SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
 
         LambdaExpression? lambda = selectStatement != null?
@@ -302,7 +302,7 @@ WHERE dbo.Customers.Name = 'Nic'";
                 .ProcessSelectStatement(selectStatement) : null;
 
         Assert.NotNull(lambda);
-        Assert.Equal(expected, _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString()));
+        string c = _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString());
 
         IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
         Assert.Equal(1, result.Count());
@@ -354,6 +354,48 @@ WHERE dbo.Customers.Name = 'Nic'";
                     {"BrandId", 1},
                     {"StateId", 1}
                 });
+
+    }
+
+    [Fact]
+    public void TestSelectStarFromTrippleLeftOuterJoinStatement()
+    {
+        const string sql = @"
+SELECT *
+FROM dbo.Customers 
+LEFT OUTER JOIN dbo.Categories ON dbo.Customers.CategoryId = dbo.Categories.Id
+LEFT OUTER JOIN dbo.Brands ON dbo.Customers.BrandId = dbo.Brands.Id
+LEFT OUTER JOIN dbo.States ON dbo.Customers.StateId = dbo.States.Id
+WHERE dbo.Customers.Name = 'Nic'";
+        const string expected = "_customers.GroupJoin(_categories, outer => outer.CategoryId, inner => inner.Id, (outer, inner) => new {dbo_Categories = inner, dbo_Customers = outer}).SelectMany(x => x.dbo_Categories.DefaultIfEmpty(), (x, ii) => new {dbo_Customers = x.dbo_Customers, dbo_Categories = ii}).GroupJoin(_brands, outer => outer.dbo_Customers.BrandId, inner => inner.Id, (outer, inner) => new {dbo_Brands = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories}).SelectMany(x => x.dbo_Brands.DefaultIfEmpty(), (x, ii) => new {dbo_Customers = x.dbo_Customers, dbo_Categories = x.dbo_Categories, dbo_Brands = ii}).GroupJoin(_states, outer => outer.dbo_Customers.StateId, inner => inner.Id, (outer, inner) => new {dbo_States = inner, dbo_Customers = outer.dbo_Customers, dbo_Categories = outer.dbo_Categories, dbo_Brands = outer.dbo_Brands}).SelectMany(x => x.dbo_States.DefaultIfEmpty(), (x, ii) => new {dbo_Customers = x.dbo_Customers, dbo_Categories = x.dbo_Categories, dbo_Brands = x.dbo_Brands, dbo_States = ii}).Where(c => (c.dbo_Customers.Name == \"Nic\")).Select(Param_0 => new {Id = IIF((null == Param_0.dbo_Categories), Convert(null, Nullable`1), Convert(Param_0.dbo_Categories.Id, Nullable`1)), Name = IIF((null == Param_0.dbo_Categories), Convert(null, String), Param_0.dbo_Categories.Name), CategoryId = Param_0.dbo_Customers.CategoryId, BrandId = Param_0.dbo_Customers.BrandId, StateId = Param_0.dbo_Customers.StateId, Name2 = Param_0.dbo_Customers.Name, Id2 = Param_0.dbo_Customers.Id, Id3 = IIF((null == Param_0.dbo_Brands), Convert(null, Nullable`1), Convert(Param_0.dbo_Brands.Id, Nullable`1)), Name3 = IIF((null == Param_0.dbo_Brands), Convert(null, String), Param_0.dbo_Brands.Name), Id4 = IIF((null == Param_0.dbo_States), Convert(null, Nullable`1), Convert(Param_0.dbo_States.Id, Nullable`1)), Name4 = IIF((null == Param_0.dbo_States), Convert(null, String), Param_0.dbo_States.Name)})";        
+
+        SqlSelectStatement? selectStatement = _testHelper.GetSingleSqlSelectStatement(sql);
+
+        LambdaExpression? lambda = selectStatement != null?
+            _sqlSelectStatementExpressionAdapter
+                .ProcessSelectStatement(selectStatement) : null;
+        Assert.NotNull(lambda);
+
+        string c = _csharpConverter.ConvertLambdaStringToCSharp(lambda.Body.ToString());
+        IEnumerable<object>? result = _lambdaEvaluator.Evaluate<IEnumerable<object>>(lambda);        
+        Assert.Equal(1, result.Count());
+        _assertHelper
+            .AssertDynamicProperties(
+                result.First(), 
+                new Dictionary<string,object>{ 
+                    {"Id", 1},
+                    {"Id2", 1},
+                    {"Id3", 1},
+                    {"Id4", 1},
+                    {"Name", "Tier 1"},
+                    {"Name2", "Nic"},
+                    {"Name3", "Coke"},
+                    {"Name4", "MA"},
+                    {"CategoryId", 1},
+                    {"BrandId", 1},
+                    {"StateId", 1}
+                });
+    
 
     }
 

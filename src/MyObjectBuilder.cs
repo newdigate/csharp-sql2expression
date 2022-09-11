@@ -13,7 +13,7 @@ public class MyObjectBuilder : IMyObjectBuilder
 
         // NOTE: assuming your list contains Field objects with fields FieldName(string) and FieldType(Type)
         foreach (var field in Fields)
-            CreateProperty(tb, field.FieldName, field.FieldType);
+            CreateProperty(tb, field.FieldName, field.FieldType, field.IsNullable);
 
         Type objectType = tb.CreateType();
         return objectType;
@@ -44,11 +44,27 @@ public class MyObjectBuilder : IMyObjectBuilder
         return tb;
     }
 
-    private void CreateProperty(TypeBuilder tb, string propertyName, Type propertyType)
+    private void CreateProperty(TypeBuilder tb, string propertyName, Type propertyType, bool isNullable)
     {
+        if (isNullable) {
+            if (propertyType.IsPrimitive) {
+                propertyType = typeof(Nullable<>).MakeGenericType(propertyType);
+            }
+        }
         FieldBuilder fieldBuilder = tb.DefineField("_" + propertyName, propertyType, FieldAttributes.Private);
 
         PropertyBuilder propertyBuilder = tb.DefineProperty(propertyName, PropertyAttributes.HasDefault, propertyType, null);
+
+        if (isNullable) {
+            // add NullableAttribute attribute to property
+            if (!propertyType.IsPrimitive) {
+                ConstructorInfo attribCtorInfo = typeof(NullableAttribute).GetConstructor(new Type[] { });
+                CustomAttributeBuilder attribCABuilder = new CustomAttributeBuilder(
+                        attribCtorInfo,
+                        new object[] { });
+                propertyBuilder.SetCustomAttribute(attribCABuilder);
+            }
+        }
 
         Type[] ctorParams = new Type[] { };
         ConstructorInfo classCtorInfo = typeof(System.Runtime.Serialization.DataMemberAttribute).GetConstructor(ctorParams);
@@ -101,19 +117,21 @@ public class MyObjectBuilder : IMyObjectBuilder
         ConstructorBuilder constructor = tb.DefineDefaultConstructor(MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName);
         
         foreach (var field in leftFields)
-            CreateProperty(tb, field.FieldName, field.FieldType);
+            CreateProperty(tb, field.FieldName, field.FieldType, field.IsNullable);
 
         if (rightFields.Count() == 1) { 
             CreateProperty(tb, 
                 rightPropertyName.Replace(".", "_"), 
                 typeof(IEnumerable<>)
-                    .MakeGenericType(rightFields.First().FieldType )
+                    .MakeGenericType(rightFields.First().FieldType ),
+                false
             );
         } else {
             CreateProperty(tb, 
                 rightPropertyName.Replace(".", "_"), 
                 typeof(IEnumerable<>)
-                    .MakeGenericType(rightHandSideType));
+                    .MakeGenericType(rightHandSideType),
+                false);
         }
 
         Type objectType = tb.CreateType();
@@ -122,5 +140,9 @@ public class MyObjectBuilder : IMyObjectBuilder
 }
 
 public class DynamicDataSetElementAttribute : Attribute {
+
+}
+
+public class NullableAttribute : Attribute {
 
 }

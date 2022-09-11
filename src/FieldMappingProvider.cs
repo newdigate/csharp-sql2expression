@@ -71,7 +71,8 @@ public class FieldMappingProvider : IFieldMappingProvider
                                     {
                                         InputFieldName = inputFieldNames,
                                         OutputFieldName = sqlSelectScalarExpression.Alias?.Sql ?? m?.ToString().Replace(".", "_"),
-                                        FieldType = propInfo.PropertyType
+                                        FieldType = propInfo.PropertyType,
+                                        IsNullable = (propInfo.GetCustomAttribute<NullableAttribute>() != null)
                                     };
                                     result.Add(f);
                                 }
@@ -113,6 +114,7 @@ public class FieldMappingProvider : IFieldMappingProvider
                                 InputFieldName = new List<string>() { property.Name }, // inputFieldNames,
                                 OutputFieldName = aliasName?.Replace(".", "_"),
                                 FieldType = property.PropertyType,
+                                IsNullable = (property.GetCustomAttribute<NullableAttribute>() != null)
                                 //Alias = aliasName
                             };
                             result.Add(f);
@@ -134,14 +136,19 @@ public class FieldMappingProvider : IFieldMappingProvider
         IUniqueNameProvider uniqueNameProvider = _uniqueNameProviderFactory.Create();
         foreach (PropertyInfo compositeProperty in properties)
         {
-            IEnumerable<FieldMapping> mappings = GetFieldMappingsFromProperties(new string[] {compositeProperty.Name}, compositeProperty.PropertyType, uniqueNameProvider);
+            IEnumerable<FieldMapping> mappings = 
+                GetFieldMappingsFromProperties(
+                    new string[] {compositeProperty.Name}, 
+                    compositeProperty.PropertyType, 
+                    uniqueNameProvider,
+                    compositeProperty.GetCustomAttribute<NullableAttribute>() != null);
             result.AddRange(mappings);
         }
         return result;
     }
 
 
-    public IEnumerable<FieldMapping> GetFieldMappingsFromProperties(IEnumerable<string> navigation,  Type propertyType, IUniqueNameProvider uniqueNameProvider)
+    public IEnumerable<FieldMapping> GetFieldMappingsFromProperties(IEnumerable<string> navigation,  Type propertyType, IUniqueNameProvider uniqueNameProvider, bool isNullable)
     {
         List<FieldMapping> result = new List<FieldMapping>();
         foreach (PropertyInfo property in propertyType.GetProperties())
@@ -159,7 +166,7 @@ public class FieldMappingProvider : IFieldMappingProvider
                 InputFieldName = navigation.Union(new string[] { property.Name }).ToList(), // inputFieldNames,
                 OutputFieldName = uniqueNameProvider.GetUniqueName(aliasName),
                 FieldType = property.PropertyType,
-                //Alias = aliasName
+                IsNullable = isNullable
             };
             result.Add(f);
         }

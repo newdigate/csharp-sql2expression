@@ -12,18 +12,18 @@ public class SqlFieldProvider : ISqlFieldProvider
         _typeMapper = typeMapper;
     }
 
-    public IEnumerable<Field> GetOuterFields(SqlJoinTableExpression sqlJoinStatement)
+    public IEnumerable<Field> GetOuterFields(SqlJoinTableExpression sqlJoinStatement, bool isNullable=false)
     {
         List<Field> result = new List<Field>();
         switch (sqlJoinStatement.JoinOperator) {
             case SqlJoinOperatorType.InnerJoin: {
-                result.AddRange(GetFields(sqlJoinStatement.Left));
-                result.AddRange(GetFields(sqlJoinStatement.Right)); 
+                result.AddRange(GetFields(sqlJoinStatement.Left, isNullable));
+                result.AddRange(GetFields(sqlJoinStatement.Right, isNullable)); 
                 break;
             }
             case SqlJoinOperatorType.LeftOuterJoin: {
-                result.AddRange(GetFields(sqlJoinStatement.Left));
-                result.AddRange(GetFields(sqlJoinStatement.Right)); 
+                result.AddRange(GetFields(sqlJoinStatement.Left, isNullable));
+                result.AddRange(GetFields(sqlJoinStatement.Right, true)); 
                 break;
             }
         }
@@ -31,27 +31,28 @@ public class SqlFieldProvider : ISqlFieldProvider
         return result;
     }
 
-    public IEnumerable<Field> GetFields(SqlTableExpression sqlTableExpression)
+    public IEnumerable<Field> GetFields(SqlTableExpression sqlTableExpression, bool isNullable=false)
     {
         List<Field> result = new List<Field>();
         switch (sqlTableExpression)
         {
             case SqlJoinTableExpression sqlJoinTableExpression:
             {
-                result.AddRange(GetOuterFields(sqlJoinTableExpression));
+                IEnumerable<Field> fields = GetOuterFields(sqlJoinTableExpression);
+                result.AddRange(fields);
                 break;
             }
 
             case SqlTableRefExpression sqlTableRefExpression:
             {
-                result.AddRange(GetFields(sqlTableRefExpression));
+                result.AddRange(GetFields(sqlTableRefExpression, isNullable));
                 break;
             }
         }
         return result;
     }
 
-    IEnumerable<Field> GetFields(SqlTableRefExpression sqlTableRefExpression)
+    IEnumerable<Field> GetFields(SqlTableRefExpression sqlTableRefExpression, bool isNullable=false)
     {
         List<Field> result = new List<Field>();
 
@@ -59,7 +60,10 @@ public class SqlFieldProvider : ISqlFieldProvider
         if (mappedType == null)
             return result;
 
-        Field f = new Field() { FieldName = sqlTableRefExpression.Sql.ToString().Replace(".", "_"), FieldType = mappedType };
+        Field f = new Field() { 
+            FieldName = sqlTableRefExpression.Sql.ToString().Replace(".", "_"), 
+            FieldType = mappedType,
+            IsNullable = isNullable };
         result.Add(f);
         return result;
     }

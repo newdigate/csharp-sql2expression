@@ -1010,7 +1010,7 @@ public class ExpressionAdapter : IExpressionAdapter
 
         ParameterExpression paramOfTypeIEnumerableOfObject = Expression.Parameter(typeIEnumerableOfMappedType, "collection");
         IEnumerable<FieldMapping> fields = _fieldMappingProvider.GetFieldMappings(selectClause, inputType);
-        IEnumerable<Field> outputFields = fields.Select(f => new Field() { FieldName = f.OutputFieldName, FieldType = f.FieldType });
+        IEnumerable<Field> outputFields = fields.Select(f => new Field() { FieldName = f.OutputFieldName, FieldType = f.FieldType, IsNullable = f.IsNullable });
         Type dynamicType = _myObjectBuilder.CompileResultType("Dynamic_" + inputType.Name, outputFields);
         outputType = dynamicType;
 
@@ -1065,11 +1065,57 @@ public class ExpressionAdapter : IExpressionAdapter
                                 transformerParam,
                                 inputProp);
 
-                        inputProp = inputProp.PropertyType.GetProperty(f.InputFieldName.Last());
-                        if (inputProp == null)
-                            continue;
-                        memberAccess = Expression.MakeMemberAccess(memberAccess, inputProp);
-
+                        bool inputPropertyIsNullable = inputProp.GetCustomAttribute<NullableAttribute>() != null;
+                        if (inputPropertyIsNullable) { 
+                            if (inputProp.PropertyType.GetProperty(f.InputFieldName.Last()).PropertyType.IsPrimitive) {
+                                memberAccess = 
+                                    Expression
+                                        .Condition(
+                                            Expression
+                                                .Equal(
+                                                    Expression.Constant(null),
+                                                    memberAccess),
+                                            Expression.Convert(
+                                                        Expression.Constant(null),
+                                                        typeof(Nullable<>)
+                                                            .MakeGenericType(
+                                                                inputProp.PropertyType.GetProperty(f.InputFieldName.Last()).PropertyType)
+                                                    ),
+                                            Expression.Convert(
+                                                Expression
+                                                    .MakeMemberAccess(
+                                                        memberAccess, 
+                                                        inputProp.PropertyType.GetProperty(f.InputFieldName.Last())
+                                                    ),
+                                                    typeof(Nullable<>).MakeGenericType(inputProp.PropertyType.GetProperty(f.InputFieldName.Last()).PropertyType)
+                                            )
+                                        );
+                            } else {
+                                memberAccess = 
+                                    Expression
+                                        .Condition(
+                                            Expression
+                                                .Equal(
+                                                    Expression.Constant(null),
+                                                    memberAccess),
+                                            Expression.Convert(
+                                                        Expression.Constant(null),
+                                                        inputProp.PropertyType.GetProperty(f.InputFieldName.Last()).PropertyType
+                                                    ),
+                                            Expression
+                                                .MakeMemberAccess(
+                                                    memberAccess, 
+                                                    inputProp.PropertyType.GetProperty(f.InputFieldName.Last())
+                                                )
+                                        );
+                            }
+                        } 
+                        else {
+                            inputProp = inputProp.PropertyType.GetProperty(f.InputFieldName.Last());
+                            if (inputProp == null)
+                                continue;
+                            memberAccess = Expression.MakeMemberAccess(memberAccess, inputProp);
+                        }
                         bindings.Add(Expression.Bind(dynamicType.GetMember(f.OutputFieldName).First(), memberAccess));
 
                         break;
